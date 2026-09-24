@@ -74,20 +74,23 @@ export const syncToGoogleSheet = async (webAppUrl, actionType, dataPayload, targ
 export const APPS_SCRIPT_TEMPLATE = `
 // =======================================================
 // LASAK EDU - MULTI-TAB GOOGLE APPS SCRIPT WEB APP INTEGRATION
-// Automatically creates & syncs sub-sheet tabs:
-//  1. "Demo Analytics" (All Demos Roster)
-//  2. "Mechanical" (Course Sub-Sheet)
-//  3. "Civil" (Course Sub-Sheet)
-//  4. "MERN" (Course Sub-Sheet)
-//  5. "Digital Marketing" (Course Sub-Sheet)
-//  6. "Employee Entries" (Daily Staff Logins)
+// Linked with Existing Sheet: "Lasak - Sales Revenue Tracker View"
 //
-// Setup Instructions:
-// 1. Open Google Sheet > Extensions > Apps Script
-// 2. Paste this complete code & click Save
-// 3. Deploy > New deployment > Web app
-// 4. Set "Execute as": Me | "Who has access": Anyone
-// 5. Copy the Web App URL and paste in Dashboard!
+// Automatically routes and logs data into existing Sub-Sheet Tabs:
+//  1. "Demo Booking Responses" (Columns A-J: Timestamp, AC Name, Student Name, Student Email, Student Phone, Demo Date, Demo Time, Course Name, Price Pitched, Comments)
+//  2. "Bookings & Demo Done"
+//  3. "Demo Conduction Responses"
+//  4. "Revenue Responses"
+//  5. "Student Data"
+//
+// Setup Instructions for Existing Google Sheet:
+// 1. Open your existing Google Sheet ("Lasak - Sales Revenue Tracker View")
+// 2. Click Extensions > Apps Script
+// 3. Delete any old script code, paste this code & click Save (💾)
+// 4. Click Deploy > New deployment
+// 5. Select type: "Web app"
+// 6. Set "Execute as": Me | "Who has access": Anyone
+// 7. Click Deploy, copy the Web App URL and paste into Dashboard!
 // =======================================================
 
 function doPost(e) {
@@ -98,13 +101,13 @@ function doPost(e) {
     var subSheetName = contents.subSheetName || "";
     var data = contents.data;
 
-    // Helper: Find or create sub-sheet tab by name
+    // Helper: Find existing sub-sheet tab or create if missing
     function getOrCreateSheet(sheetName, defaultHeaderColor, headers) {
       var sheet = ss.getSheetByName(sheetName);
       if (!sheet) {
         sheet = ss.insertSheet(sheetName);
       }
-      if (sheet.getLastRow() === 0) {
+      if (sheet.getLastRow() === 0 && headers) {
         sheet.appendRow(headers);
         sheet.getRange(1, 1, 1, headers.length)
           .setFontWeight("bold")
@@ -114,78 +117,76 @@ function doPost(e) {
       return sheet;
     }
 
-    // --- SUB-SHEET ROUTING 1: EMPLOYEE ENTRIES ---
-    if (action === "ADD_ENTRY" || action === "SYNC_ALL_ENTRIES") {
-      var targetTab = subSheetName || "Employee Entries";
-      var empSheet = getOrCreateSheet(
-        targetTab,
-        "#059669",
-        ["Sync Time", "Entry ID", "Employee Name", "Work Date", "Status"]
+    // --- SUB-SHEET 1: DEMO BOOKING RESPONSES (Matches Your Existing Sheet Columns A-J) ---
+    if (action === "SYNC_DEMOS" || action === "ADD_DEMO") {
+      var bookingSheet = getOrCreateSheet(
+        "Demo Booking Responses",
+        "#4f46e5",
+        ["Timestamp", "AC Name", "Student Name", "Student Email", "Student Phone", "Demo Date", "Demo Time", "Course Name", "Price Pitched", "Comments"]
       );
 
-      if (action === "ADD_ENTRY") {
-        empSheet.appendRow([
+      if (action === "ADD_DEMO" && data) {
+        bookingSheet.appendRow([
           new Date().toLocaleString(),
-          data.id || "",
-          data.employeeName || "",
+          data.staffEmail || data.employeeName || "advisor@lasakedu.in",
+          data.prospectName || "",
+          data.prospectEmail || "",
+          data.prospectPhone || "",
           data.date || "",
-          "Active Entry"
+          data.timeSlot || "11:00 am",
+          data.courseKey || data.course || "Mechanical Designing",
+          data.pricePitched || "75,000",
+          data.notes || "Demo Scheduled via Dashboard"
         ]);
       } else if (Array.isArray(data)) {
         data.forEach(function(item) {
-          empSheet.appendRow([
+          bookingSheet.appendRow([
             new Date().toLocaleString(),
-            item.id || "",
-            item.employeeName || "",
+            item.staffEmail || item.employeeName || "advisor@lasakedu.in",
+            item.prospectName || "",
+            item.prospectEmail || "",
+            item.prospectPhone || "",
             item.date || "",
-            "Bulk Synced Entry"
+            item.timeSlot || "11:00 am",
+            item.courseKey || item.course || "Mechanical Designing",
+            item.pricePitched || "75,000",
+            item.notes || "Dashboard Synced Entry"
           ]);
         });
       }
     }
 
-    // --- SUB-SHEET ROUTING 2: DEMO ANALYTICS & COURSE SUB-SHEETS ---
-    else if (action === "SYNC_DEMOS") {
-      var demoTabName = subSheetName || "Demo Analytics";
-      var demoSheet = getOrCreateSheet(
-        demoTabName,
-        "#4f46e5",
-        ["Sync Time", "Demo ID", "Prospect Name", "Phone", "Course", "Advisor / Employee", "Date", "Time Slot", "Notes"]
+    // --- SUB-SHEET 2: EMPLOYEE & STUDENT DATA ---
+    else if (action === "ADD_ENTRY" || action === "SYNC_ALL_ENTRIES") {
+      var studentSheet = getOrCreateSheet(
+        "Student Data",
+        "#059669",
+        ["Timestamp", "Entry ID", "Student / Employee Name", "Date", "Status"]
       );
 
-      if (Array.isArray(data)) {
+      if (action === "ADD_ENTRY") {
+        studentSheet.appendRow([
+          new Date().toLocaleString(),
+          data.id || "",
+          data.employeeName || data.name || "",
+          data.date || "",
+          "Active Entry"
+        ]);
+      } else if (Array.isArray(data)) {
         data.forEach(function(item) {
-          var rowData = [
+          studentSheet.appendRow([
             new Date().toLocaleString(),
             item.id || "",
-            item.prospectName || "",
-            item.prospectPhone || "",
-            item.courseKey || "",
-            item.employeeName || "",
+            item.employeeName || item.name || "",
             item.date || "",
-            item.timeSlot || "",
-            item.notes || ""
-          ];
-
-          // 1. Append to main Demo Analytics tab
-          demoSheet.appendRow(rowData);
-
-          // 2. Also append to course-specific sub-sheet tab (Mechanical, Civil, MERN, etc.)
-          if (item.courseKey) {
-            var courseTabName = String(item.courseKey).trim();
-            var courseSheet = getOrCreateSheet(
-              courseTabName,
-              "#0284c7",
-              ["Sync Time", "Demo ID", "Prospect Name", "Phone", "Course", "Advisor / Employee", "Date", "Time Slot", "Notes"]
-            );
-            courseSheet.appendRow(rowData);
-          }
+            "Synced Record"
+          ]);
         });
       }
     }
 
     return ContentService
-      .createTextOutput(JSON.stringify({ status: "success", message: "Data logged across all sub-sheets successfully!" }))
+      .createTextOutput(JSON.stringify({ status: "success", message: "Data logged into your existing Google Sheet sub-sheet successfully!" }))
       .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return ContentService
@@ -195,6 +196,6 @@ function doPost(e) {
 }
 
 function doGet() {
-  return ContentService.createTextOutput("Lasak Edu Multi-Tab Google Sheets Web App is Active!");
+  return ContentService.createTextOutput("Lasak Edu - Sales Revenue Tracker View Web App Active!");
 }
 `;
