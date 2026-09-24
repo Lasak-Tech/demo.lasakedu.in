@@ -74,11 +74,20 @@ export const syncToGoogleSheet = async (webAppUrl, actionType, dataPayload, targ
 export const APPS_SCRIPT_TEMPLATE = `
 // =======================================================
 // LASAK EDU - MULTI-TAB GOOGLE APPS SCRIPT WEB APP INTEGRATION
-// Handles Sub-Sheets: "Employee Entries" & "Demo Analytics"
-// Paste this code into Google Sheets > Extensions > Apps Script
-// Click Deploy > New Deployment > Select "Web app"
-// Set "Execute as": Me | "Who has access": Anyone
-// Copy the Web App URL and paste it into your Dashboard!
+// Automatically creates & syncs sub-sheet tabs:
+//  1. "Demo Analytics" (All Demos Roster)
+//  2. "Mechanical" (Course Sub-Sheet)
+//  3. "Civil" (Course Sub-Sheet)
+//  4. "MERN" (Course Sub-Sheet)
+//  5. "Digital Marketing" (Course Sub-Sheet)
+//  6. "Employee Entries" (Daily Staff Logins)
+//
+// Setup Instructions:
+// 1. Open Google Sheet > Extensions > Apps Script
+// 2. Paste this complete code & click Save
+// 3. Deploy > New deployment > Web app
+// 4. Set "Execute as": Me | "Who has access": Anyone
+// 5. Copy the Web App URL and paste in Dashboard!
 // =======================================================
 
 function doPost(e) {
@@ -105,7 +114,7 @@ function doPost(e) {
       return sheet;
     }
 
-    // --- SUB-SHEET 1: EMPLOYEE ENTRIES ---
+    // --- SUB-SHEET ROUTING 1: EMPLOYEE ENTRIES ---
     if (action === "ADD_ENTRY" || action === "SYNC_ALL_ENTRIES") {
       var targetTab = subSheetName || "Employee Entries";
       var empSheet = getOrCreateSheet(
@@ -135,7 +144,7 @@ function doPost(e) {
       }
     }
 
-    // --- SUB-SHEET 2: DEMO ANALYTICS & TIMETABLE ---
+    // --- SUB-SHEET ROUTING 2: DEMO ANALYTICS & COURSE SUB-SHEETS ---
     else if (action === "SYNC_DEMOS") {
       var demoTabName = subSheetName || "Demo Analytics";
       var demoSheet = getOrCreateSheet(
@@ -146,7 +155,7 @@ function doPost(e) {
 
       if (Array.isArray(data)) {
         data.forEach(function(item) {
-          demoSheet.appendRow([
+          var rowData = [
             new Date().toLocaleString(),
             item.id || "",
             item.prospectName || "",
@@ -156,13 +165,27 @@ function doPost(e) {
             item.date || "",
             item.timeSlot || "",
             item.notes || ""
-          ]);
+          ];
+
+          // 1. Append to main Demo Analytics tab
+          demoSheet.appendRow(rowData);
+
+          // 2. Also append to course-specific sub-sheet tab (Mechanical, Civil, MERN, etc.)
+          if (item.courseKey) {
+            var courseTabName = String(item.courseKey).trim();
+            var courseSheet = getOrCreateSheet(
+              courseTabName,
+              "#0284c7",
+              ["Sync Time", "Demo ID", "Prospect Name", "Phone", "Course", "Advisor / Employee", "Date", "Time Slot", "Notes"]
+            );
+            courseSheet.appendRow(rowData);
+          }
         });
       }
     }
 
     return ContentService
-      .createTextOutput(JSON.stringify({ status: "success", message: "Data logged into sub-sheet successfully!" }))
+      .createTextOutput(JSON.stringify({ status: "success", message: "Data logged across all sub-sheets successfully!" }))
       .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return ContentService
