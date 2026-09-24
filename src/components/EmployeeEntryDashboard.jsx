@@ -39,7 +39,7 @@ export default function EmployeeEntryDashboard({ currentUser }) {
   );
   const [sheetUrl, setSheetUrl] = useLocalStorage(
     'lasak_employee_sheet_url',
-    ''
+    'https://script.google.com/macros/s/AKfycbyysKeO1b_pIiETYUZLOrNEJ1NINkZ2RVvr36ooa4ABzZxwjNHJoGS1a4k7_x6Ke_P1/exec'
   );
 
   // Google Sheet Modal State

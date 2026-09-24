@@ -40,8 +40,11 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
   const [selectedDate, setSelectedDate] = useState('2026-09-09');
   const [scheduledDemos, setScheduledDemos] = useState(INITIAL_SCHEDULED_DEMOS);
 
-  // Google Sheet Sync State
-  const [adminSheetUrl, setAdminSheetUrl] = useLocalStorage('lasak_admin_sheet_url', '');
+  // Google Sheet Sync State (Configured with user's live Web App URL)
+  const [adminSheetUrl, setAdminSheetUrl] = useLocalStorage(
+    'lasak_admin_sheet_url',
+    'https://script.google.com/macros/s/AKfycbyysKeO1b_pIiETYUZLOrNEJ1NINkZ2RVvr36ooa4ABzZxwjNHJoGS1a4k7_x6Ke_P1/exec'
+  );
   const [isSheetModalOpen, setIsSheetModalOpen] = useState(false);
 
   // Modal / Detail Popover State
