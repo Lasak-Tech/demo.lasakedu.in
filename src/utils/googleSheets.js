@@ -76,8 +76,12 @@ export const fetchFromGoogleSheet = async (webAppUrl) => {
     throw new Error('Google Apps Script Web App URL is required to fetch live sheet data.');
   }
 
+  const cleanUrl = webAppUrl.trim();
+  const subSheetsResult = {};
+
   try {
-    const url = webAppUrl.trim() + (webAppUrl.includes('?') ? '&' : '?') + 'action=FETCH_ALL&t=' + Date.now();
+    // 1. Send GET request to Web App URL
+    const url = cleanUrl + (cleanUrl.includes('?') ? '&' : '?') + 't=' + Date.now();
     const response = await fetch(url, { method: 'GET' });
 
     if (!response.ok) {
@@ -90,7 +94,7 @@ export const fetchFromGoogleSheet = async (webAppUrl) => {
       json = JSON.parse(rawText);
     } catch {
       throw new Error(
-        'Google Apps Script is running an OLD version! In Google Apps Script, click: Deploy ➔ Manage deployments ➔ Edit (✏️ icon) ➔ Version: "New version" ➔ Deploy.'
+        'Google Apps Script response is not valid JSON. Please ensure doGet(e) returns JSON mime type.'
       );
     }
 
@@ -98,7 +102,48 @@ export const fetchFromGoogleSheet = async (webAppUrl) => {
       throw new Error(json.message || 'Error executing doGet script in Google Apps Script.');
     }
 
-    return json;
+    // CASE 1: Response is an array of row objects directly (User Apps Script style)
+    if (Array.isArray(json)) {
+      subSheetsResult['Demo Booking Responses'] = { totalRows: json.length, data: json };
+      subSheetsResult['Revenue Responses'] = { totalRows: json.length, data: json };
+
+      // Try fetching specific tabs in parallel to build complete multi-sheet view
+      const tabsToFetch = ['Demo Booking Responses', 'Revenue Responses', 'Demo Conduction Responses', 'Student Data'];
+      await Promise.all(
+        tabsToFetch.map(async (tabName) => {
+          try {
+            const tabUrl = cleanUrl + (cleanUrl.includes('?') ? '&' : '?') + 'sheet=' + encodeURIComponent(tabName) + '&t=' + Date.now();
+            const tabRes = await fetch(tabUrl, { method: 'GET' });
+            if (tabRes.ok) {
+              const tabJson = await tabRes.json();
+              if (Array.isArray(tabJson) && tabJson.length > 0) {
+                subSheetsResult[tabName] = { totalRows: tabJson.length, data: tabJson };
+              }
+            }
+          } catch (e) {
+            // Ignore single tab fetch error
+          }
+        })
+      );
+
+      return {
+        status: 'success',
+        spreadsheetName: 'Lasak - Sales Revenue Tracker View',
+        subSheets: subSheetsResult
+      };
+    }
+
+    // CASE 2: Response contains subSheets object (Template style)
+    if (json.subSheets) {
+      return json;
+    }
+
+    return {
+      status: 'success',
+      subSheets: {
+        'Main Sheet': { totalRows: Array.isArray(json) ? json.length : 0, data: Array.isArray(json) ? json : [] }
+      }
+    };
   } catch (error) {
     throw new Error(error.message);
   }
