@@ -12,9 +12,11 @@ import {
   Code2,
   Zap,
   Sparkles,
-  ShieldCheck
+  ShieldCheck,
+  DownloadCloud,
+  Table
 } from 'lucide-react';
-import { APPS_SCRIPT_TEMPLATE } from '../utils/googleSheets';
+import { APPS_SCRIPT_TEMPLATE, fetchFromGoogleSheet } from '../utils/googleSheets';
 
 export default function GoogleSheetModal({
   isOpen,
@@ -22,6 +24,7 @@ export default function GoogleSheetModal({
   sheetUrl,
   onSaveUrl,
   onSyncData,
+  onFetchData,
   onExportCSV,
   dashboardType = 'Employee',
   recordsCount = 0
@@ -29,8 +32,10 @@ export default function GoogleSheetModal({
   const [urlInput, setUrlInput] = useState(sheetUrl || '');
   const [isCopied, setIsCopied] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isFetching, setIsFetching] = useState(false);
   const [syncStatus, setSyncStatus] = useState(null); // { type: 'success'|'error', text: '' }
   const [showCodeGuide, setShowCodeGuide] = useState(false);
+  const [fetchedTabs, setFetchedTabs] = useState(null);
 
   if (!isOpen) return null;
 
@@ -74,11 +79,45 @@ export default function GoogleSheetModal({
     }
   };
 
+  const handleTriggerFetch = async () => {
+    if (!urlInput.trim()) {
+      setSyncStatus({
+        type: 'error',
+        text: 'Please enter a valid Google Apps Script Web App URL first.'
+      });
+      return;
+    }
+
+    setIsFetching(true);
+    setSyncStatus(null);
+    try {
+      const data = await fetchFromGoogleSheet(urlInput.trim());
+      if (data && data.subSheets) {
+        setFetchedTabs(data.subSheets);
+        if (onFetchData) {
+          onFetchData(data);
+        }
+        const tabNames = Object.keys(data.subSheets);
+        setSyncStatus({
+          type: 'success',
+          text: `Fetched ${tabNames.length} sub-sheets from "${data.spreadsheetName || 'Sales Revenue Tracker'}": ${tabNames.join(', ')}`
+        });
+      }
+    } catch (err) {
+      setSyncStatus({
+        type: 'error',
+        text: err.message || 'Failed to fetch sub-sheet data. Make sure Google Apps Script is deployed with "Who has access: Anyone".'
+      });
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div
         className="modal-card"
-        style={{ maxWidth: '680px', width: '92%', borderRadius: '1rem', padding: '0', overflow: 'hidden' }}
+        style={{ maxWidth: '780px', width: '92%', borderRadius: '1rem', padding: '0', overflow: 'hidden' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
@@ -109,10 +148,10 @@ export default function GoogleSheetModal({
             </div>
             <div>
               <h3 style={{ fontSize: '1.2rem', fontWeight: '800', margin: 0, color: '#ffffff' }}>
-                Google Sheet Integration
+                Google Sheet & Sub-Sheets Integration
               </h3>
               <p style={{ fontSize: '0.8rem', color: '#a7f3d0', margin: '0.15rem 0 0 0' }}>
-                {dashboardType} Dashboard • Cloud Live Sync & Export Hub
+                {dashboardType} Dashboard • Multi-Tab Live Fetch & Cloud Push Hub
               </p>
             </div>
           </div>
@@ -168,30 +207,17 @@ export default function GoogleSheetModal({
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: '0.875rem', fontWeight: '800', color: '#065f46' }}>
-                    {sheetUrl ? '● Google Sheet Live Sync Configured' : '○ Local Mode Active (Sheet Not Linked)'}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: '0.725rem',
-                      fontWeight: '800',
-                      background: '#dcfce7',
-                      color: '#15803d',
-                      padding: '0.15rem 0.55rem',
-                      borderRadius: '0.35rem',
-                      border: '1px solid #86efac'
-                    }}
-                  >
-                    Sub-Sheet Tab: "{dashboardType.includes('Employee') ? 'Employee Entries' : 'Demo Analytics'}"
+                    {sheetUrl ? '● Google Sheet Live WebApp Connected' : '○ Local Mode Active (Sheet Not Linked)'}
                   </span>
                 </div>
                 <p style={{ fontSize: '0.78rem', color: '#047857', margin: '0.25rem 0 0 0' }}>
-                  {recordsCount} {dashboardType.toLowerCase()} record(s) ready to sync automatically into sub-sheet tab.
+                  Linked Sheet: <strong>"Lasak - Sales Revenue Tracker View"</strong> • Handles all Sub-Sheet tabs automatically.
                 </p>
               </div>
             </div>
 
             <a
-              href="https://sheets.new"
+              href="https://docs.google.com/spreadsheets/d/1_XXDnftilVvpwOysCzigKPHIwGPo1N07CFZsiQ1lh84/edit"
               target="_blank"
               rel="noopener noreferrer"
               style={{
@@ -208,7 +234,7 @@ export default function GoogleSheetModal({
                 border: '1px solid #a7f3d0'
               }}
             >
-              <span>Create New Google Sheet</span>
+              <span>Open Sales Revenue Sheet</span>
               <ExternalLink size={14} />
             </a>
           </div>
@@ -272,36 +298,100 @@ export default function GoogleSheetModal({
               </button>
             </div>
             <p style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.35rem' }}>
-              Paste your Google Apps Script Web App URL to enable instant 1-click cloud sync.
+              Paste your deployed Apps Script Web App URL below to enable live fetch and push across all sub-sheets.
             </p>
           </form>
 
-          {/* Action Grid: Sync Now & Export CSV */}
+          {/* Fetched Sub-Sheets Preview Bar */}
+          {fetchedTabs && (
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '0.75rem', padding: '0.85rem 1.1rem', marginBottom: '1.5rem' }}>
+              <div style={{ fontSize: '0.85rem', fontWeight: '800', color: '#1e293b', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Table size={16} color="#4f46e5" />
+                <span>Live Sub-Sheets Detected in Spreadsheet ({Object.keys(fetchedTabs).length}):</span>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                {Object.entries(fetchedTabs).map(([tabName, tabInfo]) => (
+                  <div key={tabName} style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '0.4rem', padding: '0.35rem 0.65rem', fontSize: '0.75rem', fontWeight: '700', color: '#334155', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }}></span>
+                    <span>{tabName}</span>
+                    <span style={{ background: '#f1f5f9', padding: '0.1rem 0.35rem', borderRadius: '0.25rem', color: '#64748b', fontSize: '0.7rem' }}>
+                      {tabInfo.totalRows} rows
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Action Grid: Fetch Subsheets, Push to Cloud & Export CSV */}
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
               gap: '1rem',
               marginBottom: '1.5rem'
             }}
           >
-            {/* Action 1: Sync to Cloud */}
+            {/* Action 1: Fetch Subsheets Data */}
             <div
               style={{
-                border: '1px solid #e2e8f0',
+                border: '1px solid #93c5fd',
                 borderRadius: '0.75rem',
                 padding: '1rem',
-                background: '#ffffff'
+                background: '#eff6ff'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                <DownloadCloud size={18} color="#2563eb" />
+                <h4 style={{ fontSize: '0.95rem', fontWeight: '800', margin: 0, color: '#1e3a8a' }}>
+                  1. Fetch Live Subsheets Data
+                </h4>
+              </div>
+              <p style={{ fontSize: '0.78rem', color: '#1e40af', marginBottom: '0.85rem' }}>
+                Pull live entries from "Demo Booking Responses", "Student Data", and all subsheet tabs.
+              </p>
+              <button
+                type="button"
+                onClick={handleTriggerFetch}
+                disabled={isFetching}
+                style={{
+                  width: '100%',
+                  background: '#2563eb',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '0.5rem',
+                  padding: '0.65rem',
+                  fontSize: '0.85rem',
+                  fontWeight: '700',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.5rem',
+                  cursor: isFetching ? 'not-allowed' : 'pointer'
+                }}
+              >
+                <DownloadCloud size={16} className={isFetching ? 'spin-animation' : ''} />
+                <span>{isFetching ? 'Fetching Subsheets...' : 'Fetch All Subsheets'}</span>
+              </button>
+            </div>
+
+            {/* Action 2: Sync / Push to Cloud */}
+            <div
+              style={{
+                border: '1px solid #a7f3d0',
+                borderRadius: '0.75rem',
+                padding: '1rem',
+                background: '#f0fdf4'
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
                 <RefreshCw size={18} color="#059669" />
-                <h4 style={{ fontSize: '0.95rem', fontWeight: '800', margin: 0, color: '#0f172a' }}>
-                  Live Google Sheet Sync
+                <h4 style={{ fontSize: '0.95rem', fontWeight: '800', margin: 0, color: '#064e3b' }}>
+                  2. Push Local Data to Sheet
                 </h4>
               </div>
-              <p style={{ fontSize: '0.78rem', color: '#64748b', marginBottom: '0.85rem' }}>
-                Transmit all {recordsCount} active records directly to your connected Google Sheet.
+              <p style={{ fontSize: '0.78rem', color: '#047857', marginBottom: '0.85rem' }}>
+                Transmit all {recordsCount} active local records to Google Sheet subsheet tab.
               </p>
               <button
                 type="button"
@@ -324,11 +414,11 @@ export default function GoogleSheetModal({
                 }}
               >
                 <RefreshCw size={16} className={isSyncing ? 'spin-animation' : ''} />
-                <span>{isSyncing ? 'Syncing to Sheet...' : 'Sync Data Now'}</span>
+                <span>{isSyncing ? 'Pushing Data...' : 'Push Data to Sheet'}</span>
               </button>
             </div>
 
-            {/* Action 2: Export CSV */}
+            {/* Action 3: Export CSV */}
             <div
               style={{
                 border: '1px solid #e2e8f0',
@@ -338,20 +428,20 @@ export default function GoogleSheetModal({
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                <Download size={18} color="#2563eb" />
+                <Download size={18} color="#475569" />
                 <h4 style={{ fontSize: '0.95rem', fontWeight: '800', margin: 0, color: '#0f172a' }}>
-                  Export CSV File
+                  3. Export CSV Backup
                 </h4>
               </div>
               <p style={{ fontSize: '0.78rem', color: '#64748b', marginBottom: '0.85rem' }}>
-                Download formatted CSV containing all records. Open directly in Google Sheets or Excel.
+                Download formatted CSV containing all active dashboard entries.
               </p>
               <button
                 type="button"
                 onClick={onExportCSV}
                 style={{
                   width: '100%',
-                  background: '#2563eb',
+                  background: '#475569',
                   color: '#ffffff',
                   border: 'none',
                   borderRadius: '0.5rem',
@@ -366,10 +456,11 @@ export default function GoogleSheetModal({
                 }}
               >
                 <Download size={16} />
-                <span>Download CSV / Sheet File</span>
+                <span>Download CSV File</span>
               </button>
             </div>
           </div>
+
 
           {/* Setup Guide Collapsible Accordion */}
           <div

@@ -203,6 +203,142 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
     setNewNotes('');
   };
 
+  // Handle fetched live data from Google Sheet sub-sheets
+  const handleFetchDataFromSheet = (sheetData) => {
+    if (!sheetData || !sheetData.subSheets) return;
+
+    const allImportedDemos = [];
+    const dateCounts = {};
+
+    // Helper: Normalize date from "15/09/2026" or "2026-09-15" to "2026-09-15"
+    const normalizeDate = (rawDate) => {
+      if (!rawDate) return '2026-09-15';
+      const str = String(rawDate).trim().split(' ')[0];
+      if (str.includes('/')) {
+        const p = str.split('/');
+        if (p.length === 3) {
+          if (p[0].length === 4) return `${p[0]}-${p[1].padStart(2, '0')}-${p[2].padStart(2, '0')}`;
+          return `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
+        }
+      } else if (str.includes('-')) {
+        const p = str.split('-');
+        if (p.length === 3) {
+          if (p[0].length === 4) return str;
+          return `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
+        }
+      }
+      return str;
+    };
+
+    // Helper: Normalize time slot from "11:10am", "10.3", "4:15pm", "12:30 PM", "11:30"
+    const normalizeTime = (rawTime) => {
+      if (!rawTime) return '11:00 am - 12:00 pm';
+      const str = String(rawTime).toLowerCase().trim();
+      if (str.includes('10:') || str === '10.3' || str.includes('10.')) return '10:00 am - 11:00 am';
+      if (str.includes('11:') || str.includes('11.')) return '11:00 am - 12:00 pm';
+      if (str.includes('12:') || str.includes('12.')) return '12:00 pm - 1:00 pm';
+      if (str.includes('2:') || str.includes('14:')) return '2:00 pm - 3:00 pm';
+      if (str.includes('3:') || str.includes('15:')) return '3:00 pm - 4:00 pm';
+      if (str.includes('4:') || str.includes('16:')) return '4:00 pm - 5:00 pm';
+      if (str.includes('5:') || str.includes('17:')) return '5:00 pm - 6:00 pm';
+      return '11:00 am - 12:00 pm';
+    };
+
+    // Helper: Map AC email or name to DEMO_EMPLOYEES profile
+    const resolveEmployee = (acStr, idx = 0) => {
+      if (!acStr) return DEMO_EMPLOYEES[idx % DEMO_EMPLOYEES.length];
+      const s = String(acStr).toLowerCase();
+      if (s.includes('gukan')) return DEMO_EMPLOYEES[0];
+      if (s.includes('siva')) return DEMO_EMPLOYEES[1];
+      if (s.includes('sreya')) return DEMO_EMPLOYEES[2];
+      if (s.includes('aswathy')) return DEMO_EMPLOYEES[3];
+      if (s.includes('parkavi')) return DEMO_EMPLOYEES[4];
+      if (s.includes('hari')) return DEMO_EMPLOYEES[5];
+      if (s.includes('dinshiya')) return DEMO_EMPLOYEES[6];
+      if (s.includes('lakshmanan')) return DEMO_EMPLOYEES[7];
+      return DEMO_EMPLOYEES[idx % DEMO_EMPLOYEES.length];
+    };
+
+    // 1. Process "Demo Booking Responses"
+    const bookingSub = sheetData.subSheets['Demo Booking Responses'];
+    if (bookingSub && bookingSub.data) {
+      bookingSub.data.forEach((row, index) => {
+        if (!row['Student Name'] && !row['Student Email']) return;
+
+        const normDate = normalizeDate(row['Demo Date'] || row['Timestamp']);
+        const normTime = normalizeTime(row['Demo Time']);
+        const emp = resolveEmployee(row['AC Name'], index);
+
+        const courseStr = (row['Course Name'] || row['Course'] || '').toLowerCase();
+        let courseKey = 'MECH';
+        if (courseStr.includes('civil')) courseKey = 'CIVIL';
+        else if (courseStr.includes('mern')) courseKey = 'MERN';
+        else if (courseStr.includes('digital') || courseStr.includes('marketing')) courseKey = 'DM';
+
+        dateCounts[normDate] = (dateCounts[normDate] || 0) + 1;
+
+        allImportedDemos.push({
+          id: `sch-booking-${index}-${Date.now()}`,
+          date: normDate,
+          timeSlot: normTime,
+          employeeId: emp.id,
+          employeeName: emp.name,
+          courseKey: courseKey,
+          prospectName: row['Student Name'] || `Student ${index + 1}`,
+          prospectPhone: row['Student Phone'] || '+91 99999 88888',
+          status: 'Fixed',
+          notes: row['Comments'] || `Pitched: ₹${row['Price Pitched'] || '75,000'}`
+        });
+      });
+    }
+
+    // 2. Process "Demo Conduction Responses"
+    const conductionSub = sheetData.subSheets['Demo Conduction Responses'];
+    if (conductionSub && conductionSub.data) {
+      conductionSub.data.forEach((row, index) => {
+        if (!row['Student Name']) return;
+        const normDate = normalizeDate(row['Followup Date'] || row['Timestamp']);
+        const normTime = normalizeTime(row['Timestamp']);
+        const emp = resolveEmployee(row['Demo Conducted By'] || row['AC Name'], index);
+
+        const courseStr = (row['Course Name'] || row['Course'] || '').toLowerCase();
+        let courseKey = 'MECH';
+        if (courseStr.includes('civil')) courseKey = 'CIVIL';
+        else if (courseStr.includes('mern')) courseKey = 'MERN';
+        else if (courseStr.includes('digital') || courseStr.includes('marketing')) courseKey = 'DM';
+
+        dateCounts[normDate] = (dateCounts[normDate] || 0) + 1;
+
+        allImportedDemos.push({
+          id: `sch-conducted-${index}-${Date.now()}`,
+          date: normDate,
+          timeSlot: normTime,
+          employeeId: emp.id,
+          employeeName: emp.name,
+          courseKey: courseKey,
+          prospectName: row['Student Name'],
+          prospectPhone: row['Student Phone'] || '+91 99999 88888',
+          status: 'Conducted',
+          notes: `Conducted by ${row['Demo Conducted By'] || emp.name}`
+        });
+      });
+    }
+
+    if (allImportedDemos.length > 0) {
+      setScheduledDemos((prev) => {
+        const existingNames = new Set(prev.map((d) => d.prospectName.toLowerCase()));
+        const uniqueNew = allImportedDemos.filter((d) => !existingNames.has(d.prospectName.toLowerCase()));
+        return [...uniqueNew, ...prev];
+      });
+
+      // Find date with highest demo count and select it
+      const sortedDates = Object.keys(dateCounts).sort((a, b) => dateCounts[b] - dateCounts[a]);
+      if (sortedDates.length > 0) {
+        setSelectedDate(sortedDates[0]);
+      }
+    }
+  };
+
   // Export Demos to CSV
   const handleExportCSV = () => {
     const headers = [
@@ -324,6 +460,18 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
 
             <div className="quick-date-pills">
               <button
+                className={`date-pill ${selectedDate === '2026-09-15' ? 'active' : ''}`}
+                onClick={() => setSelectedDate('2026-09-15')}
+              >
+                Sep 15 (Sheet Data)
+              </button>
+              <button
+                className={`date-pill ${selectedDate === '2026-09-16' ? 'active' : ''}`}
+                onClick={() => setSelectedDate('2026-09-16')}
+              >
+                Sep 16 (Sheet Data)
+              </button>
+              <button
                 className={`date-pill ${selectedDate === '2026-09-09' ? 'active' : ''}`}
                 onClick={() => setSelectedDate('2026-09-09')}
               >
@@ -334,12 +482,6 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
                 onClick={() => setSelectedDate('2026-09-08')}
               >
                 Yesterday (Sep 8)
-              </button>
-              <button
-                className={`date-pill ${selectedDate === '2026-09-10' ? 'active' : ''}`}
-                onClick={() => setSelectedDate('2026-09-10')}
-              >
-                Tomorrow (Sep 10)
               </button>
             </div>
           </div>
@@ -946,6 +1088,7 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
         sheetUrl={adminSheetUrl}
         onSaveUrl={(url) => setAdminSheetUrl(url)}
         onSyncData={(url) => syncToGoogleSheet(url, 'SYNC_DEMOS', dateDemos, 'Demo Analytics')}
+        onFetchData={handleFetchDataFromSheet}
         onExportCSV={handleExportCSV}
         dashboardType="Admin Demo Analytics"
         recordsCount={dateDemos.length}

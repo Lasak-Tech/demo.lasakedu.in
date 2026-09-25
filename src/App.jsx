@@ -209,6 +209,20 @@ export default function App() {
             currentUser={currentUser}
             onUpdateStudentStatus={handleUpdateStudentStatus}
             onAddStudent={handleAddStudent}
+            initialSubTab="drives"
+          />
+        );
+
+      case 'student-placement':
+        return (
+          <CareerHub
+            recruitmentDrives={recruitmentDrives}
+            courses={courses}
+            students={students}
+            currentUser={currentUser}
+            onUpdateStudentStatus={handleUpdateStudentStatus}
+            onAddStudent={handleAddStudent}
+            initialSubTab="placements"
           />
         );
 

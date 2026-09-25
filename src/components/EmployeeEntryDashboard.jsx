@@ -112,6 +112,31 @@ export default function EmployeeEntryDashboard({ currentUser }) {
     exportToCSV('lasak_employee_entries', headers, entries);
   };
 
+  // Handle fetched live data from Google Sheet sub-sheets
+  const handleFetchDataFromSheet = (sheetData) => {
+    if (!sheetData || !sheetData.subSheets) return;
+
+    const studentSubsheet =
+      sheetData.subSheets['Student Data'] ||
+      sheetData.subSheets['Employee Entries'] ||
+      sheetData.subSheets['Demo Booking Responses'];
+
+    if (studentSubsheet && studentSubsheet.data && studentSubsheet.data.length > 0) {
+      const importedEntries = studentSubsheet.data.map((row, index) => ({
+        id: `emp-rec-gsheet-${index}-${Date.now()}`,
+        employeeName: row['Student / Employee Name'] || row['Employee Name'] || row['AC Name'] || 'Advisor',
+        date: row['Date'] || row['Demo Date'] || '2026-09-09',
+        createdAt: Date.now() - index * 1000
+      }));
+
+      setEntries((prev) => {
+        const existingKeys = new Set(prev.map((e) => `${e.employeeName.toLowerCase()}_${e.date}`));
+        const uniqueNew = importedEntries.filter((e) => !existingKeys.has(`${e.employeeName.toLowerCase()}_${e.date}`));
+        return [...uniqueNew, ...prev];
+      });
+    }
+  };
+
   // Delete Individual Entry
   const handleDelete = (id) => {
     setEntries((prev) => prev.filter((item) => item.id !== id));
@@ -464,6 +489,7 @@ export default function EmployeeEntryDashboard({ currentUser }) {
         sheetUrl={sheetUrl}
         onSaveUrl={(url) => setSheetUrl(url)}
         onSyncData={(url) => syncToGoogleSheet(url, 'SYNC_ALL_ENTRIES', entries, 'Employee Entries')}
+        onFetchData={handleFetchDataFromSheet}
         onExportCSV={handleExportCSV}
         dashboardType="Employee Entry"
         recordsCount={entries.length}

@@ -27,22 +27,76 @@ export default function CareerHub({
   students = [],
   currentUser,
   onUpdateStudentStatus,
-  onAddStudent
+  onAddStudent,
+  initialSubTab = 'drives'
 }) {
+  const [activeSubTab, setActiveSubTab] = useState(initialSubTab); // 'drives' | 'placements'
   const [selectedCourseFilter, setSelectedCourseFilter] = useState('ALL');
   const [selectedDriveForConnect, setSelectedDriveForConnect] = useState(null);
   const [selectedDriveForApply, setSelectedDriveForApply] = useState(null);
   const [selectedPlacedStudentModal, setSelectedPlacedStudentModal] = useState(null);
-  const [showPlacementReportView, setShowPlacementReportView] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
 
-  if (showPlacementReportView) {
+  if (activeSubTab === 'placements') {
     return (
-      <PlacementReportPage
-        students={students}
-        courses={courses}
-        onBack={() => setShowPlacementReportView(false)}
-      />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+        {/* Sub-Nav Bar */}
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '1rem', padding: '0.85rem 1.25rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', gap: '0.65rem' }}>
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('drives')}
+              style={{
+                padding: '0.55rem 1.15rem',
+                borderRadius: '0.6rem',
+                fontWeight: '800',
+                fontSize: '0.875rem',
+                border: '1px solid #cbd5e1',
+                background: '#ffffff',
+                color: '#475569',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.45rem'
+              }}
+            >
+              <Briefcase size={16} />
+              <span>Corporate Job Drives</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('placements')}
+              style={{
+                padding: '0.55rem 1.15rem',
+                borderRadius: '0.6rem',
+                fontWeight: '800',
+                fontSize: '0.875rem',
+                border: '2px solid #059669',
+                background: '#059669',
+                color: '#ffffff',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.45rem',
+                boxShadow: '0 2px 8px rgba(5, 150, 105, 0.25)'
+              }}
+            >
+              <GraduationCap size={16} />
+              <span>Student Placement Details</span>
+              <span style={{ fontSize: '0.725rem', background: 'rgba(255,255,255,0.25)', padding: '0.1rem 0.45rem', borderRadius: '9999px', color: '#ffffff' }}>
+                {students.filter(s => s.placedStatus === 'Placed' || (s.company && s.company !== '—')).length} Placed
+              </span>
+            </button>
+          </div>
+        </div>
+
+        <PlacementReportPage
+          students={students}
+          courses={courses}
+          onBack={() => setActiveSubTab('drives')}
+        />
+      </div>
     );
   }
 
@@ -110,6 +164,75 @@ export default function CareerHub({
         border: '1px solid #e2e8f0'
       }}
     >
+      {/* Primary Sub-Nav Bar: Job Drives vs Student Placement Details */}
+      <div
+        style={{
+          display: 'flex',
+          gap: '0.75rem',
+          marginBottom: '1.5rem',
+          paddingBottom: '1rem',
+          borderBottom: '2px solid #f1f5f9',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          justifyContent: 'space-between'
+        }}
+      >
+        <div style={{ display: 'flex', gap: '0.65rem' }}>
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('drives')}
+            style={{
+              padding: '0.6rem 1.2rem',
+              borderRadius: '0.6rem',
+              fontWeight: '800',
+              fontSize: '0.875rem',
+              border: activeSubTab === 'drives' ? '2px solid #4f46e5' : '1px solid #cbd5e1',
+              background: activeSubTab === 'drives' ? '#4f46e5' : '#ffffff',
+              color: activeSubTab === 'drives' ? '#ffffff' : '#475569',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.45rem',
+              boxShadow: activeSubTab === 'drives' ? '0 2px 8px rgba(79, 70, 229, 0.25)' : 'none'
+            }}
+          >
+            <Briefcase size={16} />
+            <span>Corporate Job Drives</span>
+            <span style={{ fontSize: '0.725rem', background: activeSubTab === 'drives' ? 'rgba(255,255,255,0.25)' : '#f1f5f9', padding: '0.1rem 0.45rem', borderRadius: '9999px', color: activeSubTab === 'drives' ? '#ffffff' : '#64748b' }}>
+              {allJobDrives.length} Drives
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('placements')}
+            style={{
+              padding: '0.6rem 1.2rem',
+              borderRadius: '0.6rem',
+              fontWeight: '800',
+              fontSize: '0.875rem',
+              border: activeSubTab === 'placements' ? '2px solid #059669' : '1px solid #cbd5e1',
+              background: activeSubTab === 'placements' ? '#059669' : '#ffffff',
+              color: activeSubTab === 'placements' ? '#ffffff' : '#475569',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.45rem'
+            }}
+          >
+            <GraduationCap size={16} />
+            <span>Student Placement Details Page</span>
+            <span style={{ fontSize: '0.725rem', background: '#ecfdf5', padding: '0.1rem 0.45rem', borderRadius: '9999px', color: '#047857' }}>
+              {students.filter(s => s.placedStatus === 'Placed' || (s.company && s.company !== '—')).length} Placed Students
+            </span>
+          </button>
+        </div>
+
+        <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: '600' }}>
+          Showing <strong>{allJobDrives.length} Active Hiring Drives</strong>
+        </div>
+      </div>
+
       {/* Toast Alert */}
       {toastMessage && (
         <div className="alert-banner alert-success" style={{ marginBottom: '1.25rem' }}>
@@ -624,7 +747,7 @@ export default function CareerHub({
 
             <button
               type="button"
-              onClick={() => setShowPlacementReportView(true)}
+              onClick={() => setActiveSubTab('placements')}
               style={{
                 background: '#059669',
                 color: '#ffffff',

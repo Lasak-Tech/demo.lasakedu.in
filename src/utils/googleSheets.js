@@ -33,8 +33,8 @@ export const syncToGoogleSheet = async (webAppUrl, actionType, dataPayload, targ
   }
 
   const payload = {
-    action: actionType, // 'ADD_ENTRY', 'SYNC_ALL_ENTRIES', 'SYNC_DEMOS'
-    subSheetName: targetSubSheet, // Target sub-sheet tab name (e.g. 'Employee Entries', 'Demo Analytics')
+    action: actionType, // 'ADD_ENTRY', 'SYNC_ALL_ENTRIES', 'SYNC_DEMOS', 'ADD_DEMO'
+    subSheetName: targetSubSheet, // Target sub-sheet tab name (e.g. 'Demo Booking Responses', 'Student Data')
     timestamp: new Date().toISOString(),
     data: dataPayload
   };
@@ -70,38 +70,140 @@ export const syncToGoogleSheet = async (webAppUrl, actionType, dataPayload, targ
   }
 };
 
+// Fetch all sub-sheet data live from Google Apps Script Web App (doGet)
+export const fetchFromGoogleSheet = async (webAppUrl) => {
+  if (!webAppUrl || !webAppUrl.trim()) {
+    throw new Error('Google Apps Script Web App URL is required to fetch live sheet data.');
+  }
+
+  try {
+    const url = webAppUrl.trim() + (webAppUrl.includes('?') ? '&' : '?') + 'action=FETCH_ALL&t=' + Date.now();
+    const response = await fetch(url, { method: 'GET' });
+
+    if (!response.ok) {
+      throw new Error(`Server returned HTTP status ${response.status}`);
+    }
+
+    const rawText = await response.text();
+    let json;
+    try {
+      json = JSON.parse(rawText);
+    } catch {
+      throw new Error(
+        'Google Apps Script is running an OLD version! In Google Apps Script, click: Deploy ➔ Manage deployments ➔ Edit (✏️ icon) ➔ Version: "New version" ➔ Deploy.'
+      );
+    }
+
+    if (json.status === 'error') {
+      throw new Error(json.message || 'Error executing doGet script in Google Apps Script.');
+    }
+
+    return json;
+  } catch (error) {
+    throw new Error(error.message);
+  }
+};
+
 // Multi-Tab & Sub-Sheet Ready Google Apps Script Template
 export const APPS_SCRIPT_TEMPLATE = `
 // =======================================================
 // LASAK EDU - MULTI-TAB GOOGLE APPS SCRIPT WEB APP INTEGRATION
-// Linked with Existing Sheet: "Lasak - Sales Revenue Tracker View"
+// Sheet Name: "Lasak - Sales Revenue Tracker View"
 //
-// Automatically routes and logs data into existing Sub-Sheet Tabs:
-//  1. "Demo Booking Responses" (Columns A-J: Timestamp, AC Name, Student Name, Student Email, Student Phone, Demo Date, Demo Time, Course Name, Price Pitched, Comments)
+// Sub-Sheet Tabs Handled:
+//  1. "Demo Booking Responses" (Columns: Timestamp, AC Name, Student Name, Student Email, Student Phone, Demo Date, Demo Time, Course Name, Price Pitched, Comments)
 //  2. "Bookings & Demo Done"
 //  3. "Demo Conduction Responses"
 //  4. "Revenue Responses"
 //  5. "Student Data"
 //
-// Setup Instructions for Existing Google Sheet:
-// 1. Open your existing Google Sheet ("Lasak - Sales Revenue Tracker View")
+// SETUP INSTRUCTIONS IN GOOGLE SHEETS:
+// 1. Open your Google Sheet ("Lasak - Sales Revenue Tracker View")
 // 2. Click Extensions > Apps Script
-// 3. Delete any old script code, paste this code & click Save (💾)
-// 4. Click Deploy > New deployment
-// 5. Select type: "Web app"
-// 6. Set "Execute as": Me | "Who has access": Anyone
-// 7. Click Deploy, copy the Web App URL and paste into Dashboard!
+// 3. Select all existing code, delete it, and paste this entire code
+// 4. Click Save (💾)
+// 5. Click Deploy > New deployment
+// 6. Select type: "Web app"
+// 7. Set "Execute as": "Me"
+// 8. Set "Who has access": "Anyone"  <-- CRITICAL for fetching data!
+// 9. Click Deploy, copy the Web App URL and paste into your Dashboard!
 // =======================================================
 
+// --- READ / FETCH DATA FROM ALL SUB-SHEETS (GET Request) ---
+function doGet(e) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheets = ss.getSheets();
+    var result = {
+      status: "success",
+      spreadsheetName: ss.getName(),
+      timestamp: new Date().toISOString(),
+      subSheets: {}
+    };
+
+    for (var i = 0; i < sheets.length; i++) {
+      var sheet = sheets[i];
+      var name = sheet.getName();
+      var data = sheet.getDataRange().getDisplayValues();
+
+      if (data && data.length > 0) {
+        var headers = data[0];
+        var rows = [];
+
+        for (var r = 1; r < data.length; r++) {
+          var rowObj = {};
+          var hasValue = false;
+
+          for (var c = 0; c < headers.length; c++) {
+            var rawHeader = headers[c] ? headers[c].toString().trim() : ("Col_" + (c + 1));
+            var cellVal = data[r][c];
+
+            // Format date objects to string if needed
+            if (cellVal instanceof Date) {
+              cellVal = Utilities.formatDate(cellVal, Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
+            }
+            rowObj[rawHeader] = cellVal !== undefined ? cellVal : "";
+            if (cellVal !== "" && cellVal !== null) {
+              hasValue = true;
+            }
+          }
+
+          if (hasValue) {
+            rows.push(rowObj);
+          }
+        }
+
+        result.subSheets[name] = {
+          headers: headers,
+          totalRows: rows.length,
+          data: rows
+        };
+      } else {
+        result.subSheets[name] = { headers: [], totalRows: 0, data: [] };
+      }
+    }
+
+    return ContentService
+      .createTextOutput(JSON.stringify(result))
+      .setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ status: "error", message: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// --- WRITE / SYNC DATA TO SUB-SHEETS (POST Request) ---
 function doPost(e) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var contents = JSON.parse(e.postData.contents);
     var action = contents.action;
-    var subSheetName = contents.subSheetName || "";
+    var targetTabName = contents.subSheetName || "Demo Booking Responses";
     var data = contents.data;
 
-    // Helper: Find existing sub-sheet tab or create if missing
+    // Helper: Get existing sub-sheet tab or create if missing
     function getOrCreateSheet(sheetName, defaultHeaderColor, headers) {
       var sheet = ss.getSheetByName(sheetName);
       if (!sheet) {
@@ -117,16 +219,16 @@ function doPost(e) {
       return sheet;
     }
 
-    // --- SUB-SHEET 1: DEMO BOOKING RESPONSES (Matches Your Existing Sheet Columns A-J) ---
-    if (action === "SYNC_DEMOS" || action === "ADD_DEMO") {
-      var bookingSheet = getOrCreateSheet(
-        "Demo Booking Responses",
+    // SUB-SHEET: Demo Booking Responses / Demo Conduction Responses
+    if (action === "SYNC_DEMOS" || action === "ADD_DEMO" || targetTabName.indexOf("Demo") !== -1) {
+      var sheet = getOrCreateSheet(
+        targetTabName || "Demo Booking Responses",
         "#4f46e5",
         ["Timestamp", "AC Name", "Student Name", "Student Email", "Student Phone", "Demo Date", "Demo Time", "Course Name", "Price Pitched", "Comments"]
       );
 
       if (action === "ADD_DEMO" && data) {
-        bookingSheet.appendRow([
+        sheet.appendRow([
           new Date().toLocaleString(),
           data.staffEmail || data.employeeName || "advisor@lasakedu.in",
           data.prospectName || "",
@@ -136,11 +238,11 @@ function doPost(e) {
           data.timeSlot || "11:00 am",
           data.courseKey || data.course || "Mechanical Designing",
           data.pricePitched || "75,000",
-          data.notes || "Demo Scheduled via Dashboard"
+          data.notes || "Scheduled via Dashboard"
         ]);
       } else if (Array.isArray(data)) {
         data.forEach(function(item) {
-          bookingSheet.appendRow([
+          sheet.appendRow([
             new Date().toLocaleString(),
             item.staffEmail || item.employeeName || "advisor@lasakedu.in",
             item.prospectName || "",
@@ -155,17 +257,16 @@ function doPost(e) {
         });
       }
     }
-
-    // --- SUB-SHEET 2: EMPLOYEE & STUDENT DATA ---
-    else if (action === "ADD_ENTRY" || action === "SYNC_ALL_ENTRIES") {
-      var studentSheet = getOrCreateSheet(
-        "Student Data",
+    // SUB-SHEET: Student Data / Employee Entries
+    else {
+      var sheet = getOrCreateSheet(
+        targetTabName || "Student Data",
         "#059669",
         ["Timestamp", "Entry ID", "Student / Employee Name", "Date", "Status"]
       );
 
-      if (action === "ADD_ENTRY") {
-        studentSheet.appendRow([
+      if (action === "ADD_ENTRY" && data) {
+        sheet.appendRow([
           new Date().toLocaleString(),
           data.id || "",
           data.employeeName || data.name || "",
@@ -174,7 +275,7 @@ function doPost(e) {
         ]);
       } else if (Array.isArray(data)) {
         data.forEach(function(item) {
-          studentSheet.appendRow([
+          sheet.appendRow([
             new Date().toLocaleString(),
             item.id || "",
             item.employeeName || item.name || "",
@@ -186,16 +287,13 @@ function doPost(e) {
     }
 
     return ContentService
-      .createTextOutput(JSON.stringify({ status: "success", message: "Data logged into your existing Google Sheet sub-sheet successfully!" }))
+      .createTextOutput(JSON.stringify({ status: "success", message: "Data logged into Google Sheet tab successfully!" }))
       .setMimeType(ContentService.MimeType.JSON);
+
   } catch (err) {
     return ContentService
       .createTextOutput(JSON.stringify({ status: "error", message: err.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
   }
-}
-
-function doGet() {
-  return ContentService.createTextOutput("Lasak Edu - Sales Revenue Tracker View Web App Active!");
 }
 `;

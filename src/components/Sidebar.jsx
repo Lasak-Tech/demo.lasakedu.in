@@ -7,7 +7,8 @@ import {
   UserCog,
   ChevronLeft,
   ChevronRight,
-  ShieldCheck
+  ShieldCheck,
+  GraduationCap
 } from 'lucide-react';
 
 export default function Sidebar({ user, activeTab, setActiveTab }) {
@@ -18,6 +19,7 @@ export default function Sidebar({ user, activeTab, setActiveTab }) {
   const menuItems = [
     { id: 'employee', label: 'Employee', icon: Users },
     { id: 'career', label: 'Career', icon: Briefcase },
+    { id: 'student-placement', label: 'Student Placement', icon: GraduationCap },
     { id: 'demo-analytics', label: 'Demo Analytics', icon: BarChart2, highlight: true },
     { id: 'course-management', label: 'Course Management', icon: PlusSquare, externalUrl: 'https://course-managemnet.vercel.app/' },
     ...(isHead ? [{ id: 'user-management', label: 'User Management', icon: UserCog }] : [])
