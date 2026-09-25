@@ -364,6 +364,38 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
       });
     }
 
+    // 3. Process "Revenue Responses"
+    const revenueSub = sheetData.subSheets['Revenue Responses'];
+    if (revenueSub && revenueSub.data) {
+      revenueSub.data.forEach((row, index) => {
+        if (!row['Student Name'] && !row['Student Mail ID']) return;
+        const normDate = normalizeDate(row['Timestamp']);
+        const normTime = '11:00 am - 12:00 pm';
+        const emp = resolveEmployee(row['AC Name'], index);
+
+        const courseStr = (row['Course'] || row['Course Name'] || '').toLowerCase();
+        let courseKey = 'MECH';
+        if (courseStr.includes('civil')) courseKey = 'CIVIL';
+        else if (courseStr.includes('mern')) courseKey = 'MERN';
+        else if (courseStr.includes('digital') || courseStr.includes('marketing')) courseKey = 'DM';
+
+        dateCounts[normDate] = (dateCounts[normDate] || 0) + 1;
+
+        allImportedDemos.push({
+          id: `sch-revenue-${index}-${Date.now()}`,
+          date: normDate,
+          timeSlot: normTime,
+          employeeId: emp.id,
+          employeeName: emp.name,
+          courseKey: courseKey,
+          prospectName: row['Student Name'] || `Student ${index + 1}`,
+          prospectPhone: row['Student Mobile Number'] || row['Student Phone'] || '+91 99999 88888',
+          status: 'Conducted',
+          notes: `Enrolled: ${row['Student Type'] || 'New Joinee'} | Fees: ₹${row['Course Fees'] || '75,000'} | Payment: ${row['Payment Type'] || 'Full Payment'}`
+        });
+      });
+    }
+
     if (allImportedDemos.length > 0) {
       setScheduledDemos((prev) => {
         const existingNames = new Set(prev.map((d) => d.prospectName.toLowerCase()));
