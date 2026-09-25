@@ -24,6 +24,7 @@ import {
   Download
 } from 'lucide-react';
 import GoogleSheetModal from './GoogleSheetModal';
+import DemoForm from './DemoForm';
 import { exportToCSV, syncToGoogleSheet } from '../utils/googleSheets';
 import {
   DEMO_COURSES,
@@ -50,6 +51,7 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
   // Modal / Detail Popover State
   const [selectedDemoDetail, setSelectedDemoDetail] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showDemoFormModal, setShowDemoFormModal] = useState(false);
   const [addSlotContext, setAddSlotContext] = useState(null); // { employeeId, employeeName, timeSlot }
 
   // Form State for Adding New Demo
@@ -201,6 +203,44 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
     setNewProspectName('');
     setNewProspectPhone('');
     setNewNotes('');
+  };
+
+  // Handler: Save Demo from DemoForm Modal
+  const handleSaveDemoForm = (demoData) => {
+    let courseKey = 'MECH';
+    const cStr = (demoData.course || '').toLowerCase();
+    const dStr = (demoData.dept || '').toLowerCase();
+
+    if (cStr.includes('civil') || dStr.includes('civil')) courseKey = 'CIVIL';
+    else if (cStr.includes('mern') || dStr.includes('it')) courseKey = 'MERN';
+    else if (cStr.includes('digital') || cStr.includes('marketing')) courseKey = 'DM';
+
+    const newDemoObj = {
+      id: demoData.id || `sch-custom-${Date.now()}`,
+      date: demoData.date || selectedDate,
+      timeSlot: '11:00 am - 12:00 pm',
+      employeeId: currentUser?.id || DEMO_EMPLOYEES[0].id,
+      employeeName: currentUser?.name || DEMO_EMPLOYEES[0].name,
+      courseKey: courseKey,
+      prospectName: demoData.prospectName,
+      prospectPhone: demoData.prospectPhone || '+91 99999 88888',
+      status: demoData.status || 'Fixed',
+      notes: demoData.notes || 'Scheduled via Demo Form'
+    };
+
+    setScheduledDemos((prev) => [newDemoObj, ...prev]);
+
+    if (demoData.date) {
+      setSelectedDate(demoData.date);
+    }
+
+    if (adminSheetUrl && adminSheetUrl.trim()) {
+      syncToGoogleSheet(adminSheetUrl, 'ADD_DEMO', newDemoObj, 'Demo Booking Responses').catch((err) =>
+        console.warn('Auto Google Sheet sync warning:', err)
+      );
+    }
+
+    setShowDemoFormModal(false);
   };
 
   // Handle fetched live data from Google Sheet sub-sheets
@@ -390,8 +430,30 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
 
         {/* Action Controls & Date Selector Bar */}
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          {/* Export & Sheet Sync Action Buttons */}
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
+          {/* Export, Add Demo & Sheet Sync Action Buttons */}
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => setShowDemoFormModal(true)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.45rem',
+                padding: '0.5rem 0.95rem',
+                fontSize: '0.85rem',
+                fontWeight: '800',
+                borderRadius: '0.5rem',
+                background: '#4f46e5',
+                borderColor: '#4338ca',
+                color: '#ffffff',
+                boxShadow: '0 2px 8px rgba(79, 70, 229, 0.3)'
+              }}
+            >
+              <Plus size={16} />
+              <span>Add New Demo</span>
+            </button>
+
             <button
               type="button"
               className="btn-secondary"
@@ -1093,6 +1155,15 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
         dashboardType="Admin Demo Analytics"
         recordsCount={dateDemos.length}
       />
+
+      {/* Demo Form Log Modal */}
+      {showDemoFormModal && (
+        <DemoForm
+          currentUser={currentUser || { id: 'usr-1', name: 'Dr. Vikram' }}
+          onSave={handleSaveDemoForm}
+          onClose={() => setShowDemoFormModal(false)}
+        />
+      )}
     </div>
   );
 }
