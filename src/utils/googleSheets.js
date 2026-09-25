@@ -93,6 +93,11 @@ export const fetchFromGoogleSheet = async (webAppUrl) => {
     try {
       json = JSON.parse(rawText);
     } catch {
+      if (rawText.includes('Lasak') || rawText.includes('Active') || !rawText.trim().startsWith('{') && !rawText.trim().startsWith('[')) {
+        throw new Error(
+          'Google Apps Script returned plain text instead of JSON ("' + rawText.slice(0, 50) + '..."). Please update doGet(e) in Apps Script with the multi-tab JSON template and deploy a New Version.'
+        );
+      }
       throw new Error(
         'Google Apps Script response is not valid JSON. Please ensure doGet(e) returns JSON mime type.'
       );

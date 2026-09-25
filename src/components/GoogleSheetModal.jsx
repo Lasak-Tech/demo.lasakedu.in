@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   FileSpreadsheet,
@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 import { APPS_SCRIPT_TEMPLATE, fetchFromGoogleSheet } from '../utils/googleSheets';
 
+const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbyysKeO1b_pIiETYUZLOrNEJ1NINkZ2RVvr36ooa4ABzZxwjNHJoGS1a4k7_x6Ke_P1/exec';
+
 export default function GoogleSheetModal({
   isOpen,
   onClose,
@@ -29,13 +31,19 @@ export default function GoogleSheetModal({
   dashboardType = 'Employee',
   recordsCount = 0
 }) {
-  const [urlInput, setUrlInput] = useState(sheetUrl || '');
+  const [urlInput, setUrlInput] = useState(sheetUrl || DEFAULT_WEB_APP_URL);
   const [isCopied, setIsCopied] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isFetching, setIsFetching] = useState(false);
   const [syncStatus, setSyncStatus] = useState(null); // { type: 'success'|'error', text: '' }
   const [showCodeGuide, setShowCodeGuide] = useState(false);
   const [fetchedTabs, setFetchedTabs] = useState(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setUrlInput(sheetUrl && sheetUrl.trim() ? sheetUrl : DEFAULT_WEB_APP_URL);
+    }
+  }, [isOpen, sheetUrl]);
 
   if (!isOpen) return null;
 
