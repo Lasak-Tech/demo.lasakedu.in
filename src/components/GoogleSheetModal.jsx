@@ -148,30 +148,62 @@ export default function GoogleSheetModal({
     }
   };
 
-  // Extract columns for active tab
+  const [filterDate, setFilterDate] = useState('ALL');
+
+  // Extract columns and non-empty rows for active tab
   const currentTab = fetchedTabs && selectedTabKey ? fetchedTabs[selectedTabKey] : null;
-  const rawRows = useMemo(() => currentTab?.data || [], [currentTab]);
+
+  // Filter out blank/empty trailing rows from Google Sheet
+  const validRows = useMemo(() => {
+    const data = currentTab?.data || [];
+    return data.filter((row) => {
+      if (!row || typeof row !== 'object') return false;
+      return Object.values(row).some((val) => val !== null && val !== undefined && String(val).trim() !== '');
+    });
+  }, [currentTab]);
+
+  // Extract all unique dates in active tab for date dropdown filter
+  const availableTabDates = useMemo(() => {
+    const dates = new Set();
+    validRows.forEach((row) => {
+      const dt = row['Timestamp'] || row['Demo Date'] || row['Date'];
+      if (dt) {
+        const dStr = String(dt).slice(0, 10);
+        if (dStr.startsWith('202')) dates.add(dStr);
+      }
+    });
+    return Array.from(dates).sort((a, b) => b.localeCompare(a));
+  }, [validRows]);
 
   const columns = useMemo(() => {
-    if (!rawRows || rawRows.length === 0) return ['Timestamp', 'AC Name', 'Student Name', 'Student Email', 'Student Phone', 'Course', 'Status'];
+    if (!validRows || validRows.length === 0) return ['Timestamp', 'AC Name', 'Student Name', 'Student Email', 'Student Phone', 'Course', 'Status'];
     if (currentTab?.headers && currentTab.headers.length > 0) {
       return currentTab.headers;
     }
     const keySet = new Set();
-    rawRows.forEach((row) => {
+    validRows.forEach((row) => {
       Object.keys(row).forEach((k) => keySet.add(k));
     });
     return Array.from(keySet);
-  }, [currentTab, rawRows]);
+  }, [currentTab, validRows]);
 
-  // Filtered rows by search term
+  // Filtered rows by search term & Date Filter
   const filteredRows = useMemo(() => {
-    if (!searchTerm.trim()) return rawRows;
-    const term = searchTerm.toLowerCase();
-    return rawRows.filter((row) =>
-      Object.values(row).some((val) => String(val).toLowerCase().includes(term))
-    );
-  }, [rawRows, searchTerm]);
+    return validRows.filter((row) => {
+      // Date Filter
+      if (filterDate !== 'ALL') {
+        const dt = row['Timestamp'] || row['Demo Date'] || row['Date'];
+        const dStr = dt ? String(dt).slice(0, 10) : '';
+        if (!dStr.includes(filterDate)) return false;
+      }
+      // Search Filter
+      if (searchTerm.trim()) {
+        const term = searchTerm.toLowerCase();
+        return Object.values(row).some((val) => String(val).toLowerCase().includes(term));
+      }
+      return true;
+    });
+  }, [validRows, searchTerm, filterDate]);
 
   // Pagination
   const totalPages = Math.ceil(filteredRows.length / pageSize) || 1;
@@ -379,39 +411,70 @@ export default function GoogleSheetModal({
             gap: '0.75rem'
           }}
         >
-          {/* Search Box */}
-          <div style={{ position: 'relative', width: '320px' }}>
-            <Search
-              size={15}
-              style={{
-                position: 'absolute',
-                left: '10px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: '#64748b'
-              }}
-            />
-            <input
-              type="text"
-              placeholder={`Search in ${selectedTabKey || 'sub-sheet'}...`}
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setCurrentPage(1);
-              }}
-              style={{
-                width: '100%',
-                paddingLeft: '32px',
-                paddingRight: '12px',
-                paddingTop: '0.4rem',
-                paddingBottom: '0.4rem',
-                fontSize: '0.8rem',
-                border: '1px solid #cbd5e1',
-                borderRadius: '0.4rem',
-                background: '#ffffff',
-                outline: 'none'
-              }}
-            />
+          {/* Search Box & Date Filter Dropdown */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+            <div style={{ position: 'relative', width: '280px' }}>
+              <Search
+                size={15}
+                style={{
+                  position: 'absolute',
+                  left: '10px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#64748b'
+                }}
+              />
+              <input
+                type="text"
+                placeholder={`Search in ${selectedTabKey || 'sub-sheet'}...`}
+                value={searchTerm}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setCurrentPage(1);
+                }}
+                style={{
+                  width: '100%',
+                  paddingLeft: '32px',
+                  paddingRight: '12px',
+                  paddingTop: '0.4rem',
+                  paddingBottom: '0.4rem',
+                  fontSize: '0.8rem',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '0.4rem',
+                  background: '#ffffff',
+                  outline: 'none'
+                }}
+              />
+            </div>
+
+            {/* Date Filter Dropdown */}
+            {availableTabDates.length > 0 && (
+              <select
+                value={filterDate}
+                onChange={(e) => {
+                  setFilterDate(e.target.value);
+                  setCurrentPage(1);
+                }}
+                style={{
+                  padding: '0.4rem 0.65rem',
+                  fontSize: '0.78rem',
+                  fontWeight: '700',
+                  borderRadius: '0.4rem',
+                  border: '1px solid #cbd5e1',
+                  background: '#ffffff',
+                  color: '#1e293b',
+                  outline: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value="ALL">📅 All Dates ({validRows.length} rows)</option>
+                {availableTabDates.map((dt) => (
+                  <option key={dt} value={dt}>
+                    📅 {dt}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           {/* Center Info Banner */}
@@ -789,7 +852,7 @@ export default function GoogleSheetModal({
                       fontWeight: '700'
                     }}
                   >
-                    {tabInfo.totalRows}
+                    {(tabInfo.data || []).filter(r => r && Object.values(r).some(v => v !== null && v !== undefined && String(v).trim() !== '')).length || tabInfo.totalRows}
                   </span>
                 </button>
               );
