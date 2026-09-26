@@ -178,12 +178,15 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
     }));
   }, [scheduledDemos]);
 
-  // Timetable Matrix Lookup: employeeId + timeSlot -> Demo or null
+  // Timetable Matrix Lookup: employeeId + timeSlot -> Array of Demos for selected date
   const timetableMatrix = useMemo(() => {
     const map = {};
     dateDemos.forEach((demo) => {
       const key = `${demo.employeeId}_${demo.timeSlot}`;
-      map[key] = demo;
+      if (!map[key]) {
+        map[key] = [];
+      }
+      map[key].push(demo);
     });
     return map;
   }, [dateDemos]);
@@ -975,23 +978,26 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
                   {/* Hourly Slot Cells */}
                   {TIME_SLOTS.map((slot) => {
                     const matrixKey = `${emp.id}_${slot}`;
-                    const demo = timetableMatrix[matrixKey];
+                    const slotDemos = timetableMatrix[matrixKey];
 
-                    if (demo) {
-                      const courseObj = DEMO_COURSES[demo.courseKey] || DEMO_COURSES.MECH;
+                    if (slotDemos && slotDemos.length > 0) {
+                      const firstDemo = slotDemos[0];
+                      const courseObj = DEMO_COURSES[firstDemo.courseKey] || DEMO_COURSES.MECH;
 
                       return (
                         <td
                           key={slot}
                           className="timetable-cell occupied-cell"
-                          onClick={() => setSelectedDemoDetail(demo)}
+                          onClick={() => setSelectedDemoDetail(firstDemo)}
+                          style={{ cursor: 'pointer' }}
                         >
                           <div
                             className="scheduled-demo-badge"
                             style={{
                               backgroundColor: courseObj.bgColor,
                               borderColor: courseObj.color,
-                              color: courseObj.darkColor
+                              color: courseObj.darkColor,
+                              position: 'relative'
                             }}
                           >
                             <div className="badge-header-row">
@@ -1000,9 +1006,25 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
                                 style={{ backgroundColor: courseObj.color }}
                               />
                               <span className="course-code-name">{courseObj.name}</span>
+                              {slotDemos.length > 1 && (
+                                <span
+                                  style={{
+                                    marginLeft: 'auto',
+                                    background: courseObj.darkColor,
+                                    color: '#ffffff',
+                                    borderRadius: '1rem',
+                                    fontSize: '0.65rem',
+                                    padding: '0.05rem 0.35rem',
+                                    fontWeight: '800'
+                                  }}
+                                  title={`${slotDemos.length} demos scheduled in this slot`}
+                                >
+                                  +{slotDemos.length - 1}
+                                </span>
+                              )}
                             </div>
-                            <div className="prospect-name-text">{demo.prospectName}</div>
-                            <div className="status-tag">{demo.status}</div>
+                            <div className="prospect-name-text">{firstDemo.prospectName}</div>
+                            <div className="status-tag">{firstDemo.status}</div>
                           </div>
                         </td>
                       );
