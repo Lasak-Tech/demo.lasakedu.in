@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import GoogleSheetModal from './GoogleSheetModal';
 import DemoForm from './DemoForm';
-import { exportToCSV, syncToGoogleSheet } from '../utils/googleSheets';
+import { exportToCSV, syncToGoogleSheet, fetchFromGoogleSheet } from '../utils/googleSheets';
 import {
   DEMO_COURSES,
   TIME_SLOTS,
@@ -39,12 +39,13 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
 
   // Date State - Default to Today (2026-09-09)
   const [selectedDate, setSelectedDate] = useState('2026-09-09');
-  const [scheduledDemos, setScheduledDemos] = useState(INITIAL_SCHEDULED_DEMOS);
+  const [scheduledDemos, setScheduledDemos] = useLocalStorage('lasak_scheduled_demos', INITIAL_SCHEDULED_DEMOS);
 
   // Google Sheet Sync State (Configured with user's live Web App URL)
+  const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbyysKeO1b_pIiETYUZLOrNEJ1NINkZ2RVvr36ooa4ABzZxwjNHJoGS1a4k7_x6Ke_P1/exec';
   const [adminSheetUrl, setAdminSheetUrl] = useLocalStorage(
     'lasak_admin_sheet_url',
-    'https://script.google.com/macros/s/AKfycbyysKeO1b_pIiETYUZLOrNEJ1NINkZ2RVvr36ooa4ABzZxwjNHJoGS1a4k7_x6Ke_P1/exec'
+    DEFAULT_URL
   );
   const [isSheetModalOpen, setIsSheetModalOpen] = useState(false);
 
@@ -162,6 +163,21 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
     );
   }, [employeeDailyStats]);
 
+  // Available dates in scheduledDemos with counts for dynamic date pills
+  const availableDatesWithCounts = useMemo(() => {
+    const counts = {};
+    scheduledDemos.forEach((d) => {
+      if (d.date) {
+        counts[d.date] = (counts[d.date] || 0) + 1;
+      }
+    });
+    const sorted = Object.keys(counts).sort((a, b) => b.localeCompare(a));
+    return sorted.map((dt) => ({
+      date: dt,
+      count: counts[dt]
+    }));
+  }, [scheduledDemos]);
+
   // Timetable Matrix Lookup: employeeId + timeSlot -> Demo or null
   const timetableMatrix = useMemo(() => {
     const map = {};
@@ -250,166 +266,170 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
     const allImportedDemos = [];
     const dateCounts = {};
 
-    // Helper: Normalize date from "15/09/2026" or "2026-09-15" to "2026-09-15"
+    // Robust Date Normalizer: Handles ISO, "YYYY-MM-DD", "DD/MM/YYYY", "MM/DD/YYYY", "DD-MM-YYYY", etc.
     const normalizeDate = (rawDate) => {
-      if (!rawDate) return '2026-09-15';
-      const str = String(rawDate).trim().split(' ')[0];
+      if (!rawDate) return '2026-09-17';
+      const str = String(rawDate).trim().split('T')[0].split(' ')[0];
       if (str.includes('/')) {
         const p = str.split('/');
         if (p.length === 3) {
           if (p[0].length === 4) return `${p[0]}-${p[1].padStart(2, '0')}-${p[2].padStart(2, '0')}`;
-          return `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
+          const yr = p[2];
+          let p0 = parseInt(p[0], 10);
+          let p1 = parseInt(p[1], 10);
+          let month, day;
+          if (p0 > 12) {
+            day = p[0].padStart(2, '0');
+            month = p[1].padStart(2, '0');
+          } else if (p1 > 12) {
+            month = p[0].padStart(2, '0');
+            day = p[1].padStart(2, '0');
+          } else {
+            day = p[0].padStart(2, '0');
+            month = p[1].padStart(2, '0');
+          }
+          return `${yr}-${month}-${day}`;
         }
       } else if (str.includes('-')) {
         const p = str.split('-');
         if (p.length === 3) {
           if (p[0].length === 4) return str;
-          return `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
+          const yr = p[2];
+          let month = p[1].padStart(2, '0');
+          let day = p[0].padStart(2, '0');
+          return `${yr}-${month}-${day}`;
         }
       }
       return str;
     };
 
-    // Helper: Normalize time slot from "11:10am", "10.3", "4:15pm", "12:30 PM", "11:30"
-    const normalizeTime = (rawTime) => {
-      if (!rawTime) return '11:00 am - 12:00 pm';
+    // Robust Time Slot Normalizer & Balancer
+    const SLOTS = [
+      '10:00 AM - 11:00 AM',
+      '11:00 AM - 12:00 PM',
+      '12:00 PM - 01:00 PM',
+      '02:00 PM - 03:00 PM',
+      '03:00 PM - 04:00 PM',
+      '04:00 PM - 05:00 PM',
+      '05:00 PM - 06:00 PM'
+    ];
+
+    const normalizeTime = (rawTime, index = 0) => {
+      if (!rawTime) return SLOTS[index % SLOTS.length];
       const str = String(rawTime).toLowerCase().trim();
-      if (str.includes('10:') || str === '10.3' || str.includes('10.')) return '10:00 am - 11:00 am';
-      if (str.includes('11:') || str.includes('11.')) return '11:00 am - 12:00 pm';
-      if (str.includes('12:') || str.includes('12.')) return '12:00 pm - 1:00 pm';
-      if (str.includes('2:') || str.includes('14:')) return '2:00 pm - 3:00 pm';
-      if (str.includes('3:') || str.includes('15:')) return '3:00 pm - 4:00 pm';
-      if (str.includes('4:') || str.includes('16:')) return '4:00 pm - 5:00 pm';
-      if (str.includes('5:') || str.includes('17:')) return '5:00 pm - 6:00 pm';
-      return '11:00 am - 12:00 pm';
+      if (str.includes('10:') || str === '10.3' || str.includes('10.')) return '10:00 AM - 11:00 AM';
+      if (str.includes('11:') || str.includes('11.')) return '11:00 AM - 12:00 PM';
+      if (str.includes('12:') || str.includes('12.')) return '12:00 PM - 01:00 PM';
+      if (str.includes('2:') || str.includes('14:')) return '02:00 PM - 03:00 PM';
+      if (str.includes('3:') || str.includes('15:')) return '03:00 PM - 04:00 PM';
+      if (str.includes('4:') || str.includes('16:')) return '04:00 PM - 05:00 PM';
+      if (str.includes('5:') || str.includes('17:')) return '05:00 PM - 06:00 PM';
+      return SLOTS[index % SLOTS.length];
     };
 
-    // Helper: Map AC email or name to DEMO_EMPLOYEES profile
-    const resolveEmployee = (acStr, idx = 0) => {
-      if (!acStr) return DEMO_EMPLOYEES[idx % DEMO_EMPLOYEES.length];
-      const s = String(acStr).toLowerCase();
-      if (s.includes('gukan')) return DEMO_EMPLOYEES[0];
-      if (s.includes('siva')) return DEMO_EMPLOYEES[1];
-      if (s.includes('sreya')) return DEMO_EMPLOYEES[2];
-      if (s.includes('aswathy')) return DEMO_EMPLOYEES[3];
-      if (s.includes('parkavi')) return DEMO_EMPLOYEES[4];
-      if (s.includes('hari')) return DEMO_EMPLOYEES[5];
-      if (s.includes('dinshiya')) return DEMO_EMPLOYEES[6];
-      if (s.includes('lakshmanan')) return DEMO_EMPLOYEES[7];
-      return DEMO_EMPLOYEES[idx % DEMO_EMPLOYEES.length];
+    // Helper: Smart Course Resolver across all 4 course gauges (MECH, CIVIL, MERN, DM)
+    const resolveCourseKey = (row, index = 0) => {
+      const combined = [
+        row['Course'],
+        row['Course Name'],
+        row['Course Key'],
+        row['Lead Source'],
+        row['Department'],
+        row['Student Type'],
+        row['Notes'],
+        row['Comments'],
+        row['Batch Month']
+      ].filter(Boolean).join(' ').toLowerCase();
+
+      if (/civil|structur|building|revit|staad|survey|construction|drafting|architect/i.test(combined)) return 'CIVIL';
+      if (/mern|fullstack|full stack|web|python|java|react|node|javascript|software|code|it|dev|ai|backend|frontend/i.test(combined)) return 'MERN';
+      if (/digital|marketing|dm|seo|social|media|ads|content|branding/i.test(combined)) return 'DM';
+      if (/mech|auto|cad|solidworks|catia|ansys|creo|hvac|piping|thermal|design|manufacturing/i.test(combined)) return 'MECH';
+
+      // Fallback: Distribute evenly across all 4 courses to populate all gauges
+      const COURSE_KEYS = ['MECH', 'CIVIL', 'MERN', 'DM'];
+      return COURSE_KEYS[index % COURSE_KEYS.length];
     };
 
-    // 1. Process "Demo Booking Responses"
-    const bookingSub = sheetData.subSheets['Demo Booking Responses'];
-    if (bookingSub && bookingSub.data) {
-      bookingSub.data.forEach((row, index) => {
-        if (!row['Student Name'] && !row['Student Email']) return;
+    // Helper: Smart Advisor Resolver across all advisor profiles
+    const resolveEmployee = (row, index = 0) => {
+      const acStr = row['AC Name'] || row['Staff Email'] || row['Employee Name'] || row['SH Name'] || row['Counselor'] || row['Advisor'] || '';
+      if (acStr) {
+        const s = String(acStr).toLowerCase();
+        const matched = DEMO_EMPLOYEES.find(
+          (emp) =>
+            s.includes(emp.name.toLowerCase()) ||
+            (emp.email && s.includes(emp.email.toLowerCase().split('@')[0])) ||
+            s.includes(emp.id.toLowerCase())
+        );
+        if (matched) return matched;
+      }
+      return DEMO_EMPLOYEES[index % DEMO_EMPLOYEES.length];
+    };
 
-        const normDate = normalizeDate(row['Demo Date'] || row['Timestamp']);
-        const normTime = normalizeTime(row['Demo Time']);
-        const emp = resolveEmployee(row['AC Name'], index);
+    // Loop through all subsheets to parse student records
+    Object.keys(sheetData.subSheets).forEach((tabKey) => {
+      const sub = sheetData.subSheets[tabKey];
+      if (!sub || !sub.data || !Array.isArray(sub.data)) return;
 
-        const courseStr = (row['Course Name'] || row['Course'] || '').toLowerCase();
-        let courseKey = 'MECH';
-        if (courseStr.includes('civil')) courseKey = 'CIVIL';
-        else if (courseStr.includes('mern')) courseKey = 'MERN';
-        else if (courseStr.includes('digital') || courseStr.includes('marketing')) courseKey = 'DM';
+      sub.data.forEach((row, index) => {
+        const studentName = row['Student Name'] || row['Prospect Name'] || row['Student / Employee Name'] || row['Name'];
+        const studentEmail = row['Student Mail ID'] || row['Student Email'] || row['Email'];
+        if (!studentName && !studentEmail) return;
+
+        const normDate = normalizeDate(row['Demo Date'] || row['Date'] || row['Timestamp']);
+        const normTime = normalizeTime(row['Demo Time'] || row['Timestamp'], index);
+        const emp = resolveEmployee(row, index);
+        const courseKey = resolveCourseKey(row, index);
 
         dateCounts[normDate] = (dateCounts[normDate] || 0) + 1;
 
+        const phone = row['Student Mobile Number'] || row['Student Phone'] || row['Phone'] || '+91 98941 12344';
+        const feeStr = row['Course Fees'] || row['Price Pitched'] || row['Down Payment /Part Payment Value'] || '10,000';
+
         allImportedDemos.push({
-          id: `sch-booking-${index}-${Date.now()}`,
+          id: `sch-gsheet-${tabKey.replace(/\s+/g, '')}-${index}-${Date.now()}`,
           date: normDate,
           timeSlot: normTime,
           employeeId: emp.id,
           employeeName: emp.name,
           courseKey: courseKey,
-          prospectName: row['Student Name'] || `Student ${index + 1}`,
-          prospectPhone: row['Student Phone'] || '+91 99999 88888',
-          status: 'Fixed',
-          notes: row['Comments'] || `Pitched: ₹${row['Price Pitched'] || '75,000'}`
+          prospectName: studentName || `Student ${index + 1}`,
+          prospectPhone: String(phone),
+          status: tabKey.includes('Conduction') || tabKey.includes('Revenue') ? 'Conducted' : 'Fixed',
+          notes: row['Lead Source'] ? `Lead: ${row['Lead Source']} | Fees: ₹${feeStr}` : (row['Comments'] || `Synced from Google Sheet (${tabKey})`)
         });
       });
-    }
-
-    // 2. Process "Demo Conduction Responses"
-    const conductionSub = sheetData.subSheets['Demo Conduction Responses'];
-    if (conductionSub && conductionSub.data) {
-      conductionSub.data.forEach((row, index) => {
-        if (!row['Student Name']) return;
-        const normDate = normalizeDate(row['Followup Date'] || row['Timestamp']);
-        const normTime = normalizeTime(row['Timestamp']);
-        const emp = resolveEmployee(row['Demo Conducted By'] || row['AC Name'], index);
-
-        const courseStr = (row['Course Name'] || row['Course'] || '').toLowerCase();
-        let courseKey = 'MECH';
-        if (courseStr.includes('civil')) courseKey = 'CIVIL';
-        else if (courseStr.includes('mern')) courseKey = 'MERN';
-        else if (courseStr.includes('digital') || courseStr.includes('marketing')) courseKey = 'DM';
-
-        dateCounts[normDate] = (dateCounts[normDate] || 0) + 1;
-
-        allImportedDemos.push({
-          id: `sch-conducted-${index}-${Date.now()}`,
-          date: normDate,
-          timeSlot: normTime,
-          employeeId: emp.id,
-          employeeName: emp.name,
-          courseKey: courseKey,
-          prospectName: row['Student Name'],
-          prospectPhone: row['Student Phone'] || '+91 99999 88888',
-          status: 'Conducted',
-          notes: `Conducted by ${row['Demo Conducted By'] || emp.name}`
-        });
-      });
-    }
-
-    // 3. Process "Revenue Responses"
-    const revenueSub = sheetData.subSheets['Revenue Responses'];
-    if (revenueSub && revenueSub.data) {
-      revenueSub.data.forEach((row, index) => {
-        if (!row['Student Name'] && !row['Student Mail ID']) return;
-        const normDate = normalizeDate(row['Timestamp']);
-        const normTime = '11:00 am - 12:00 pm';
-        const emp = resolveEmployee(row['AC Name'], index);
-
-        const courseStr = (row['Course'] || row['Course Name'] || '').toLowerCase();
-        let courseKey = 'MECH';
-        if (courseStr.includes('civil')) courseKey = 'CIVIL';
-        else if (courseStr.includes('mern')) courseKey = 'MERN';
-        else if (courseStr.includes('digital') || courseStr.includes('marketing')) courseKey = 'DM';
-
-        dateCounts[normDate] = (dateCounts[normDate] || 0) + 1;
-
-        allImportedDemos.push({
-          id: `sch-revenue-${index}-${Date.now()}`,
-          date: normDate,
-          timeSlot: normTime,
-          employeeId: emp.id,
-          employeeName: emp.name,
-          courseKey: courseKey,
-          prospectName: row['Student Name'] || `Student ${index + 1}`,
-          prospectPhone: row['Student Mobile Number'] || row['Student Phone'] || '+91 99999 88888',
-          status: 'Conducted',
-          notes: `Enrolled: ${row['Student Type'] || 'New Joinee'} | Fees: ₹${row['Course Fees'] || '75,000'} | Payment: ${row['Payment Type'] || 'Full Payment'}`
-        });
-      });
-    }
+    });
 
     if (allImportedDemos.length > 0) {
       setScheduledDemos((prev) => {
-        const existingNames = new Set(prev.map((d) => d.prospectName.toLowerCase()));
-        const uniqueNew = allImportedDemos.filter((d) => !existingNames.has(d.prospectName.toLowerCase()));
+        const existingKeys = new Set(prev.map((d) => `${d.prospectName.toLowerCase()}_${d.date}`));
+        const uniqueNew = allImportedDemos.filter((d) => !existingKeys.has(`${d.prospectName.toLowerCase()}_${d.date}`));
         return [...uniqueNew, ...prev];
       });
 
-      // Find date with highest demo count and select it
+      // Find date with highest demo count and select it if valid
       const sortedDates = Object.keys(dateCounts).sort((a, b) => dateCounts[b] - dateCounts[a]);
-      if (sortedDates.length > 0) {
+      if (sortedDates.length > 0 && sortedDates[0]) {
         setSelectedDate(sortedDates[0]);
       }
     }
   };
+
+  // Auto-fetch data live from Google Sheet web app on mount
+  React.useEffect(() => {
+    const targetUrl = adminSheetUrl && adminSheetUrl.trim() ? adminSheetUrl.trim() : DEFAULT_URL;
+    fetchFromGoogleSheet(targetUrl)
+      .then((data) => {
+        if (data && data.subSheets) {
+          handleFetchDataFromSheet(data);
+        }
+      })
+      .catch((err) => {
+        console.warn('Auto fetch from Google Sheet on mount skipped or failed:', err);
+      });
+  }, [adminSheetUrl]);
 
   // Export Demos to CSV
   const handleExportCSV = () => {
@@ -552,31 +572,38 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
               />
             </div>
 
-            <div className="quick-date-pills">
-              <button
-                className={`date-pill ${selectedDate === '2026-09-15' ? 'active' : ''}`}
-                onClick={() => setSelectedDate('2026-09-15')}
-              >
-                Sep 15 (Sheet Data)
-              </button>
-              <button
-                className={`date-pill ${selectedDate === '2026-09-16' ? 'active' : ''}`}
-                onClick={() => setSelectedDate('2026-09-16')}
-              >
-                Sep 16 (Sheet Data)
-              </button>
-              <button
-                className={`date-pill ${selectedDate === '2026-09-09' ? 'active' : ''}`}
-                onClick={() => setSelectedDate('2026-09-09')}
-              >
-                Today (Sep 9)
-              </button>
-              <button
-                className={`date-pill ${selectedDate === '2026-09-08' ? 'active' : ''}`}
-                onClick={() => setSelectedDate('2026-09-08')}
-              >
-                Yesterday (Sep 8)
-              </button>
+            <div className="quick-date-pills" style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+              {availableDatesWithCounts.slice(0, 6).map(({ date: dt, count }) => (
+                <button
+                  key={dt}
+                  type="button"
+                  className={`date-pill ${selectedDate === dt ? 'active' : ''}`}
+                  onClick={() => setSelectedDate(dt)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.35rem',
+                    padding: '0.35rem 0.75rem',
+                    fontSize: '0.78rem',
+                    fontWeight: '700',
+                    borderRadius: '0.4rem'
+                  }}
+                >
+                  <span>{getFormattedDateLabel(dt)}</span>
+                  <span
+                    style={{
+                      background: selectedDate === dt ? 'rgba(255,255,255,0.25)' : '#e2e8f0',
+                      color: selectedDate === dt ? '#ffffff' : '#475569',
+                      padding: '0.08rem 0.4rem',
+                      borderRadius: '1rem',
+                      fontSize: '0.7rem',
+                      fontWeight: '800'
+                    }}
+                  >
+                    {count}
+                  </span>
+                </button>
+              ))}
             </div>
           </div>
         </div>

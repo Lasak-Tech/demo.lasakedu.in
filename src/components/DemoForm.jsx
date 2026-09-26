@@ -19,7 +19,7 @@ export default function DemoForm({ currentUser, onSave, onClose }) {
   const availableCourses = COURSES.filter(c => c.dept === form.dept);
 
   const validate = () => {
-    const e = {};
+    const e = {};vb 
     if (!form.prospectName.trim()) e.prospectName = 'Prospect name is required';
     if (!form.prospectPhone.trim()) e.prospectPhone = 'Phone number is required';
     if (!form.dept) e.dept = 'Select a department';
@@ -42,7 +42,7 @@ export default function DemoForm({ currentUser, onSave, onClose }) {
       id: `dem-${Date.now()}`,
       staffId: currentUser.id,
       staffName: currentUser.name,
-      ...form
+      ...form 
     };
     onSave(newDemo);
     onClose();

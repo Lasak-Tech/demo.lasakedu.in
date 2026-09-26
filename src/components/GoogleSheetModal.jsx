@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   X,
   FileSpreadsheet,
@@ -11,14 +11,20 @@ import {
   AlertCircle,
   Code2,
   Zap,
-  Sparkles,
-  ShieldCheck,
   DownloadCloud,
-  Table
+  Table,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  Settings,
+  Grid,
+  Maximize2
 } from 'lucide-react';
 import { APPS_SCRIPT_TEMPLATE, fetchFromGoogleSheet } from '../utils/googleSheets';
 
 const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbyysKeO1b_pIiETYUZLOrNEJ1NINkZ2RVvr36ooa4ABzZxwjNHJoGS1a4k7_x6Ke_P1/exec';
+const EMBED_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1_XXDnftilVvpwOysCzigKPHIwGPo1N07CFZsiQ1lh84/preview';
 
 export default function GoogleSheetModal({
   isOpen,
@@ -38,19 +44,39 @@ export default function GoogleSheetModal({
   const [syncStatus, setSyncStatus] = useState(null); // { type: 'success'|'error', text: '' }
   const [showCodeGuide, setShowCodeGuide] = useState(false);
   const [fetchedTabs, setFetchedTabs] = useState(null);
+  const [selectedTabKey, setSelectedTabKey] = useState(null);
+  
+  // View Modes: 'grid' (Interactive Spreadsheet Grid), 'iframe' (Embedded Google Sheet), 'settings' (Cloud Setup)
+  const [viewMode, setViewMode] = useState('grid');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+
+  // Helper for column letters A, B, C ... Z, AA, AB
+  const getColLetter = (index) => {
+    let letter = '';
+    let i = index;
+    while (i >= 0) {
+      letter = String.fromCharCode((i % 26) + 65) + letter;
+      i = Math.floor(i / 26) - 1;
+    }
+    return letter;
+  };
 
   useEffect(() => {
     if (isOpen) {
       setUrlInput(sheetUrl && sheetUrl.trim() ? sheetUrl : DEFAULT_WEB_APP_URL);
+      // Auto trigger fetch on mount if no tabs loaded yet
+      if (!fetchedTabs) {
+        handleTriggerFetch();
+      }
     }
-  }, [isOpen, sheetUrl]);
-
-  if (!isOpen) return null;
+  }, [isOpen]);
 
   const handleSave = (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     onSaveUrl(urlInput.trim());
-    setSyncStatus({ type: 'success', text: 'Google Sheet Web App URL updated successfully!' });
+    setSyncStatus({ type: 'success', text: 'Google Sheet Web App URL saved successfully!' });
     setTimeout(() => setSyncStatus(null), 3000);
   };
 
@@ -88,27 +114,28 @@ export default function GoogleSheetModal({
   };
 
   const handleTriggerFetch = async () => {
-    if (!urlInput.trim()) {
-      setSyncStatus({
-        type: 'error',
-        text: 'Please enter a valid Google Apps Script Web App URL first.'
-      });
-      return;
-    }
+    const target = urlInput && urlInput.trim() ? urlInput.trim() : DEFAULT_WEB_APP_URL;
 
     setIsFetching(true);
     setSyncStatus(null);
     try {
-      const data = await fetchFromGoogleSheet(urlInput.trim());
+      const data = await fetchFromGoogleSheet(target);
       if (data && data.subSheets) {
         setFetchedTabs(data.subSheets);
+        const keys = Object.keys(data.subSheets);
+        if (keys.length > 0 && !selectedTabKey) {
+          setSelectedTabKey(keys[0]);
+        }
+        if (onSaveUrl) {
+          onSaveUrl(target);
+        }
         if (onFetchData) {
           onFetchData(data);
         }
-        const tabNames = Object.keys(data.subSheets);
+        const totalRowsSum = Object.values(data.subSheets).reduce((acc, curr) => acc + (curr.totalRows || 0), 0);
         setSyncStatus({
           type: 'success',
-          text: `Fetched ${tabNames.length} sub-sheets from "${data.spreadsheetName || 'Sales Revenue Tracker'}": ${tabNames.join(', ')}`
+          text: `Fetched ${totalRowsSum} live entries across ${keys.length} sub-sheets from "${data.spreadsheetName || 'Lasak - Sales Revenue Tracker View'}". Spreadsheet ready!`
         });
       }
     } catch (err) {
@@ -121,30 +148,77 @@ export default function GoogleSheetModal({
     }
   };
 
+  // Extract columns for active tab
+  const currentTab = fetchedTabs && selectedTabKey ? fetchedTabs[selectedTabKey] : null;
+  const rawRows = useMemo(() => currentTab?.data || [], [currentTab]);
+
+  const columns = useMemo(() => {
+    if (!rawRows || rawRows.length === 0) return ['Timestamp', 'AC Name', 'Student Name', 'Student Email', 'Student Phone', 'Course', 'Status'];
+    if (currentTab?.headers && currentTab.headers.length > 0) {
+      return currentTab.headers;
+    }
+    const keySet = new Set();
+    rawRows.forEach((row) => {
+      Object.keys(row).forEach((k) => keySet.add(k));
+    });
+    return Array.from(keySet);
+  }, [currentTab, rawRows]);
+
+  // Filtered rows by search term
+  const filteredRows = useMemo(() => {
+    if (!searchTerm.trim()) return rawRows;
+    const term = searchTerm.toLowerCase();
+    return rawRows.filter((row) =>
+      Object.values(row).some((val) => String(val).toLowerCase().includes(term))
+    );
+  }, [rawRows, searchTerm]);
+
+  // Pagination
+  const totalPages = Math.ceil(filteredRows.length / pageSize) || 1;
+  const pageRows = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredRows.slice(start, start + pageSize);
+  }, [filteredRows, currentPage, pageSize]);
+
+  if (!isOpen) return null;
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop" onClick={onClose} style={{ backdropFilter: 'blur(6px)', background: 'rgba(15, 23, 42, 0.65)' }}>
       <div
         className="modal-card"
-        style={{ maxWidth: '780px', width: '92%', borderRadius: '1rem', padding: '0', overflow: 'hidden' }}
+        style={{
+          maxWidth: '1280px',
+          width: '95vw',
+          height: '92vh',
+          borderRadius: '1rem',
+          padding: '0',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
+          background: '#ffffff'
+        }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Modal Header */}
+        {/* --- GOOGLE SHEETS HEADER TOOLBAR --- */}
         <div
           style={{
-            background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+            background: 'linear-gradient(135deg, #065f46 0%, #047857 100%)',
             color: '#ffffff',
-            padding: '1.25rem 1.5rem',
+            padding: '0.85rem 1.25rem',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'space-between'
+            justifyContent: 'space-between',
+            borderBottom: '1px solid #047857'
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          {/* Left Title & Status */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
             <div
               style={{
-                width: '42px',
-                height: '42px',
-                borderRadius: '0.6rem',
+                width: '38px',
+                height: '38px',
+                borderRadius: '0.5rem',
                 background: 'rgba(255, 255, 255, 0.2)',
                 backdropFilter: 'blur(4px)',
                 display: 'flex',
@@ -152,430 +226,588 @@ export default function GoogleSheetModal({
                 justifyContent: 'center'
               }}
             >
-              <FileSpreadsheet size={24} color="#ffffff" />
+              <FileSpreadsheet size={22} color="#ffffff" />
             </div>
             <div>
-              <h3 style={{ fontSize: '1.2rem', fontWeight: '800', margin: 0, color: '#ffffff' }}>
-                Google Sheet & Sub-Sheets Integration
-              </h3>
-              <p style={{ fontSize: '0.8rem', color: '#a7f3d0', margin: '0.15rem 0 0 0' }}>
-                {dashboardType} Dashboard • Multi-Tab Live Fetch & Cloud Push Hub
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: '800', margin: 0, color: '#ffffff', letterSpacing: '-0.01em' }}>
+                  Lasak - Sales Revenue Tracker View
+                </h3>
+                <span
+                  style={{
+                    fontSize: '0.72rem',
+                    fontWeight: '700',
+                    background: '#10b981',
+                    color: '#ffffff',
+                    padding: '0.15rem 0.6rem',
+                    borderRadius: '1rem',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.3rem'
+                  }}
+                >
+                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#ffffff' }}></span>
+                  Live Sheet Connected
+                </span>
+              </div>
+              <p style={{ fontSize: '0.78rem', color: '#a7f3d0', margin: '0.15rem 0 0 0' }}>
+                Multi-Tab Google Spreadsheet Viewer • {fetchedTabs ? `${Object.keys(fetchedTabs).length} Sub-Sheets Loaded` : 'Loading Sub-Sheets...'}
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: 'rgba(255, 255, 255, 0.2)',
-              border: 'none',
-              color: '#ffffff',
-              borderRadius: '0.5rem',
-              width: '32px',
-              height: '32px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer'
-            }}
-          >
-            <X size={18} />
-          </button>
-        </div>
 
-        {/* Modal Content Body */}
-        <div style={{ padding: '1.5rem', maxHeight: '78vh', overflowY: 'auto' }}>
-          {/* Sync Feedback Alert */}
-          {syncStatus && (
-            <div
-              className={`alert-banner ${syncStatus.type === 'success' ? 'alert-success' : 'alert-error'}`}
-              style={{ marginBottom: '1.25rem' }}
+          {/* Right Header Actions */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+            {/* View Mode Toggle: Grid vs Iframe */}
+            <div style={{ background: 'rgba(0, 0, 0, 0.25)', padding: '0.2rem', borderRadius: '0.5rem', display: 'flex', gap: '0.2rem' }}>
+              <button
+                type="button"
+                onClick={() => setViewMode('grid')}
+                style={{
+                  background: viewMode === 'grid' ? '#ffffff' : 'transparent',
+                  color: viewMode === 'grid' ? '#047857' : '#e2e8f0',
+                  border: 'none',
+                  borderRadius: '0.35rem',
+                  padding: '0.35rem 0.75rem',
+                  fontSize: '0.78rem',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem'
+                }}
+              >
+                <Grid size={15} />
+                <span>Spreadsheet Grid</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('iframe')}
+                style={{
+                  background: viewMode === 'iframe' ? '#ffffff' : 'transparent',
+                  color: viewMode === 'iframe' ? '#047857' : '#e2e8f0',
+                  border: 'none',
+                  borderRadius: '0.35rem',
+                  padding: '0.35rem 0.75rem',
+                  fontSize: '0.78rem',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem'
+                }}
+              >
+                <Eye size={15} />
+                <span>Google Web View</span>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleTriggerFetch}
+              disabled={isFetching}
+              style={{
+                background: 'rgba(255, 255, 255, 0.2)',
+                border: '1px solid rgba(255, 255, 255, 0.3)',
+                color: '#ffffff',
+                borderRadius: '0.5rem',
+                padding: '0.45rem 0.85rem',
+                fontSize: '0.78rem',
+                fontWeight: '700',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                cursor: isFetching ? 'not-allowed' : 'pointer'
+              }}
             >
-              {syncStatus.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
-              <span>{syncStatus.text}</span>
-            </div>
-          )}
-
-          {/* Connection Status Box */}
-          <div
-            style={{
-              background: '#f0fdf4',
-              border: '1px solid #bbf7d0',
-              borderRadius: '0.75rem',
-              padding: '1rem 1.25rem',
-              marginBottom: '1.25rem',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              flexWrap: 'wrap',
-              gap: '0.75rem'
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-              <Zap size={20} color="#059669" />
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '0.875rem', fontWeight: '800', color: '#065f46' }}>
-                    {sheetUrl ? '● Google Sheet Live WebApp Connected' : '○ Local Mode Active (Sheet Not Linked)'}
-                  </span>
-                </div>
-                <p style={{ fontSize: '0.78rem', color: '#047857', margin: '0.25rem 0 0 0' }}>
-                  Linked Sheet: <strong>"Lasak - Sales Revenue Tracker View"</strong> • Handles all Sub-Sheet tabs automatically.
-                </p>
-              </div>
-            </div>
+              <RefreshCw size={14} className={isFetching ? 'spin-animation' : ''} />
+              <span>{isFetching ? 'Fetching Sheet...' : 'Refresh Sheet'}</span>
+            </button>
 
             <a
               href="https://docs.google.com/spreadsheets/d/1_XXDnftilVvpwOysCzigKPHIwGPo1N07CFZsiQ1lh84/edit"
               target="_blank"
               rel="noopener noreferrer"
               style={{
-                fontSize: '0.8rem',
-                fontWeight: '700',
+                background: '#ffffff',
                 color: '#047857',
+                border: 'none',
+                borderRadius: '0.5rem',
+                padding: '0.45rem 0.85rem',
+                fontSize: '0.78rem',
+                fontWeight: '800',
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '0.3rem',
-                textDecoration: 'none',
-                background: '#ffffff',
-                padding: '0.4rem 0.75rem',
-                borderRadius: '0.5rem',
-                border: '1px solid #a7f3d0'
+                gap: '0.35rem',
+                textDecoration: 'none'
               }}
             >
-              <span>Open Sales Revenue Sheet</span>
+              <span>Open in Google Sheets</span>
               <ExternalLink size={14} />
             </a>
-          </div>
 
-          {/* Web App URL Configuration Form */}
-          <form onSubmit={handleSave} style={{ marginBottom: '1.5rem' }}>
-            <label
-              htmlFor="webAppUrlInput"
-              style={{
-                fontSize: '0.875rem',
-                fontWeight: '800',
-                color: '#0f172a',
-                display: 'block',
-                marginBottom: '0.4rem'
-              }}
-            >
-              Google Apps Script Web App URL
-            </label>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <div style={{ position: 'relative', flex: 1 }}>
-                <Link
-                  size={16}
-                  style={{
-                    position: 'absolute',
-                    left: '12px',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    color: '#94a3b8'
-                  }}
-                />
-                <input
-                  id="webAppUrlInput"
-                  type="url"
-                  placeholder="https://script.google.com/macros/s/AKfycbx.../exec"
-                  value={urlInput}
-                  onChange={(e) => setUrlInput(e.target.value)}
-                  style={{
-                    width: '100%',
-                    paddingLeft: '38px',
-                    paddingRight: '12px',
-                    paddingTop: '0.6rem',
-                    paddingBottom: '0.6rem',
-                    fontSize: '0.85rem',
-                    border: '1px solid #cbd5e1',
-                    borderRadius: '0.5rem',
-                    outline: 'none'
-                  }}
-                />
-              </div>
-              <button
-                type="submit"
-                className="btn-primary"
-                style={{
-                  background: '#059669',
-                  borderColor: '#047857',
-                  whiteSpace: 'nowrap',
-                  padding: '0.6rem 1.1rem'
-                }}
-              >
-                Save URL
-              </button>
-            </div>
-            <p style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.35rem' }}>
-              Paste your deployed Apps Script Web App URL below to enable live fetch and push across all sub-sheets.
-            </p>
-          </form>
-
-          {/* Fetched Sub-Sheets Preview Bar */}
-          {fetchedTabs && (
-            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '0.75rem', padding: '0.85rem 1.1rem', marginBottom: '1.5rem' }}>
-              <div style={{ fontSize: '0.85rem', fontWeight: '800', color: '#1e293b', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <Table size={16} color="#4f46e5" />
-                <span>Live Sub-Sheets Detected in Spreadsheet ({Object.keys(fetchedTabs).length}):</span>
-              </div>
-              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                {Object.entries(fetchedTabs).map(([tabName, tabInfo]) => (
-                  <div key={tabName} style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '0.4rem', padding: '0.35rem 0.65rem', fontSize: '0.75rem', fontWeight: '700', color: '#334155', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }}></span>
-                    <span>{tabName}</span>
-                    <span style={{ background: '#f1f5f9', padding: '0.1rem 0.35rem', borderRadius: '0.25rem', color: '#64748b', fontSize: '0.7rem' }}>
-                      {tabInfo.totalRows} rows
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Action Grid: Fetch Subsheets, Push to Cloud & Export CSV */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
-              gap: '1rem',
-              marginBottom: '1.5rem'
-            }}
-          >
-            {/* Action 1: Fetch Subsheets Data */}
-            <div
-              style={{
-                border: '1px solid #93c5fd',
-                borderRadius: '0.75rem',
-                padding: '1rem',
-                background: '#eff6ff'
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                <DownloadCloud size={18} color="#2563eb" />
-                <h4 style={{ fontSize: '0.95rem', fontWeight: '800', margin: 0, color: '#1e3a8a' }}>
-                  1. Fetch Live Subsheets Data
-                </h4>
-              </div>
-              <p style={{ fontSize: '0.78rem', color: '#1e40af', marginBottom: '0.85rem' }}>
-                Pull live entries from "Demo Booking Responses", "Student Data", and all subsheet tabs.
-              </p>
-              <button
-                type="button"
-                onClick={handleTriggerFetch}
-                disabled={isFetching}
-                style={{
-                  width: '100%',
-                  background: '#2563eb',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: '0.5rem',
-                  padding: '0.65rem',
-                  fontSize: '0.85rem',
-                  fontWeight: '700',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '0.5rem',
-                  cursor: isFetching ? 'not-allowed' : 'pointer'
-                }}
-              >
-                <DownloadCloud size={16} className={isFetching ? 'spin-animation' : ''} />
-                <span>{isFetching ? 'Fetching Subsheets...' : 'Fetch All Subsheets'}</span>
-              </button>
-            </div>
-
-            {/* Action 2: Sync / Push to Cloud */}
-            <div
-              style={{
-                border: '1px solid #a7f3d0',
-                borderRadius: '0.75rem',
-                padding: '1rem',
-                background: '#f0fdf4'
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                <RefreshCw size={18} color="#059669" />
-                <h4 style={{ fontSize: '0.95rem', fontWeight: '800', margin: 0, color: '#064e3b' }}>
-                  2. Push Local Data to Sheet
-                </h4>
-              </div>
-              <p style={{ fontSize: '0.78rem', color: '#047857', marginBottom: '0.85rem' }}>
-                Transmit all {recordsCount} active local records to Google Sheet subsheet tab.
-              </p>
-              <button
-                type="button"
-                onClick={handleTriggerSync}
-                disabled={isSyncing}
-                style={{
-                  width: '100%',
-                  background: '#059669',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: '0.5rem',
-                  padding: '0.65rem',
-                  fontSize: '0.85rem',
-                  fontWeight: '700',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '0.5rem',
-                  cursor: isSyncing ? 'not-allowed' : 'pointer'
-                }}
-              >
-                <RefreshCw size={16} className={isSyncing ? 'spin-animation' : ''} />
-                <span>{isSyncing ? 'Pushing Data...' : 'Push Data to Sheet'}</span>
-              </button>
-            </div>
-
-            {/* Action 3: Export CSV */}
-            <div
-              style={{
-                border: '1px solid #e2e8f0',
-                borderRadius: '0.75rem',
-                padding: '1rem',
-                background: '#ffffff'
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                <Download size={18} color="#475569" />
-                <h4 style={{ fontSize: '0.95rem', fontWeight: '800', margin: 0, color: '#0f172a' }}>
-                  3. Export CSV Backup
-                </h4>
-              </div>
-              <p style={{ fontSize: '0.78rem', color: '#64748b', marginBottom: '0.85rem' }}>
-                Download formatted CSV containing all active dashboard entries.
-              </p>
-              <button
-                type="button"
-                onClick={onExportCSV}
-                style={{
-                  width: '100%',
-                  background: '#475569',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: '0.5rem',
-                  padding: '0.65rem',
-                  fontSize: '0.85rem',
-                  fontWeight: '700',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '0.5rem',
-                  cursor: 'pointer'
-                }}
-              >
-                <Download size={16} />
-                <span>Download CSV File</span>
-              </button>
-            </div>
-          </div>
-
-
-          {/* Setup Guide Collapsible Accordion */}
-          <div
-            style={{
-              border: '1px solid #cbd5e1',
-              borderRadius: '0.75rem',
-              overflow: 'hidden'
-            }}
-          >
             <button
-              type="button"
-              onClick={() => setShowCodeGuide(!showCodeGuide)}
+              onClick={onClose}
               style={{
-                width: '100%',
-                padding: '0.85rem 1rem',
-                background: '#f8fafc',
+                background: 'rgba(255, 255, 255, 0.2)',
                 border: 'none',
+                color: '#ffffff',
+                borderRadius: '0.5rem',
+                width: '34px',
+                height: '34px',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between',
-                cursor: 'pointer',
-                fontWeight: '800',
-                fontSize: '0.875rem',
-                color: '#334155'
+                justifyContent: 'center',
+                cursor: 'pointer'
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Code2 size={18} color="#4f46e5" />
-                <span>How to connect your Google Sheet (Google Apps Script Setup Guide)</span>
-              </div>
-              <span style={{ fontSize: '0.8rem', color: '#4f46e5' }}>
-                {showCodeGuide ? 'Hide Setup Steps ▲' : 'Show Setup Steps ▼'}
-              </span>
+              <X size={20} />
             </button>
-
-            {showCodeGuide && (
-              <div style={{ padding: '1rem 1.25rem', background: '#ffffff', borderTop: '1px solid #e2e8f0' }}>
-                <ol style={{ paddingLeft: '1.2rem', fontSize: '0.825rem', color: '#334155', lineHeight: '1.6' }}>
-                  <li>
-                    Open a Google Sheet at <a href="https://sheets.new" target="_blank" rel="noreferrer">sheets.new</a>.
-                  </li>
-                  <li>
-                    Click on <strong>Extensions</strong> in the top menu and select <strong>Apps Script</strong>.
-                  </li>
-                  <li>
-                    Delete any default code, click the <strong>Copy Script Code</strong> button below, and paste it into the editor.
-                  </li>
-                  <li>
-                    Click <strong>Deploy</strong> &gt; <strong>New deployment</strong>.
-                  </li>
-                  <li>
-                    Select type: <strong>Web app</strong>. Set <i>Execute as</i>: <strong>Me</strong> and <i>Who has access</i>: <strong>Anyone</strong>.
-                  </li>
-                  <li>
-                    Click <strong>Deploy</strong>, copy the generated <strong>Web app URL</strong>, and paste it in the field above!
-                  </li>
-                </ol>
-
-                <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <button
-                    type="button"
-                    onClick={handleCopyScript}
-                    style={{
-                      background: isCopied ? '#ecfdf5' : '#4f46e5',
-                      color: isCopied ? '#047857' : '#ffffff',
-                      border: isCopied ? '1px solid #a7f3d0' : 'none',
-                      borderRadius: '0.5rem',
-                      padding: '0.5rem 1rem',
-                      fontSize: '0.8rem',
-                      fontWeight: '700',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '0.4rem',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    {isCopied ? <CheckCircle2 size={16} /> : <Copy size={16} />}
-                    <span>{isCopied ? 'Script Copied to Clipboard!' : 'Copy Apps Script Code'}</span>
-                  </button>
-
-                  <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                    100% Free & No API key needed!
-                  </span>
-                </div>
-              </div>
-            )}
           </div>
         </div>
 
-        {/* Modal Footer */}
+        {/* --- SECONDARY TOOLBAR: SEARCH & PAGINATION & SUB-SHEET ACTIONS --- */}
         <div
           style={{
-            padding: '1rem 1.5rem',
             background: '#f8fafc',
-            borderTop: '1px solid #e2e8f0',
+            borderBottom: '1px solid #cbd5e1',
+            padding: '0.6rem 1.25rem',
             display: 'flex',
-            justifyContent: 'flex-end'
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '0.75rem'
           }}
         >
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={onClose}
-            style={{ padding: '0.5rem 1.25rem' }}
-          >
-            Close Window
-          </button>
+          {/* Search Box */}
+          <div style={{ position: 'relative', width: '320px' }}>
+            <Search
+              size={15}
+              style={{
+                position: 'absolute',
+                left: '10px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: '#64748b'
+              }}
+            />
+            <input
+              type="text"
+              placeholder={`Search in ${selectedTabKey || 'sub-sheet'}...`}
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
+              style={{
+                width: '100%',
+                paddingLeft: '32px',
+                paddingRight: '12px',
+                paddingTop: '0.4rem',
+                paddingBottom: '0.4rem',
+                fontSize: '0.8rem',
+                border: '1px solid #cbd5e1',
+                borderRadius: '0.4rem',
+                background: '#ffffff',
+                outline: 'none'
+              }}
+            />
+          </div>
+
+          {/* Center Info Banner */}
+          {syncStatus && (
+            <div
+              style={{
+                fontSize: '0.78rem',
+                fontWeight: '700',
+                color: syncStatus.type === 'success' ? '#047857' : '#b91c1c',
+                background: syncStatus.type === 'success' ? '#ecfdf5' : '#fef2f2',
+                padding: '0.3rem 0.75rem',
+                borderRadius: '0.4rem',
+                border: syncStatus.type === 'success' ? '1px solid #a7f3d0' : '1px solid #fecaca',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem'
+              }}
+            >
+              {syncStatus.type === 'success' ? <CheckCircle2 size={15} /> : <AlertCircle size={15} />}
+              <span>{syncStatus.text}</span>
+            </div>
+          )}
+
+          {/* Right Pagination & Actions */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+            {/* Total Row Count */}
+            <div style={{ fontSize: '0.78rem', color: '#475569', fontWeight: '700' }}>
+              Showing {filteredRows.length > 0 ? (currentPage - 1) * pageSize + 1 : 0} -{' '}
+              {Math.min(currentPage * pageSize, filteredRows.length)} of {filteredRows.length} rows
+            </div>
+
+            {/* Pagination controls */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+              <button
+                type="button"
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                style={{
+                  background: '#ffffff',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '0.35rem',
+                  padding: '0.3rem 0.5rem',
+                  cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                  opacity: currentPage === 1 ? 0.5 : 1,
+                  display: 'flex',
+                  alignItems: 'center'
+                }}
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <span style={{ fontSize: '0.78rem', fontWeight: '700', color: '#334155', minWidth: '55px', textAlign: 'center' }}>
+                Page {currentPage} / {totalPages}
+              </span>
+              <button
+                type="button"
+                disabled={currentPage >= totalPages}
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                style={{
+                  background: '#ffffff',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '0.35rem',
+                  padding: '0.3rem 0.5rem',
+                  cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
+                  opacity: currentPage >= totalPages ? 0.5 : 1,
+                  display: 'flex',
+                  alignItems: 'center'
+                }}
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+
+            {/* Push Local & Export CSV */}
+            <button
+              type="button"
+              onClick={handleTriggerSync}
+              disabled={isSyncing}
+              style={{
+                background: '#059669',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '0.4rem',
+                padding: '0.4rem 0.75rem',
+                fontSize: '0.78rem',
+                fontWeight: '700',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                cursor: isSyncing ? 'not-allowed' : 'pointer'
+              }}
+            >
+              <RefreshCw size={14} className={isSyncing ? 'spin-animation' : ''} />
+              <span>{isSyncing ? 'Pushing...' : 'Push to Sheet'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onExportCSV}
+              style={{
+                background: '#475569',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '0.4rem',
+                padding: '0.4rem 0.75rem',
+                fontSize: '0.78rem',
+                fontWeight: '700',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                cursor: 'pointer'
+              }}
+            >
+              <Download size={14} />
+              <span>Export CSV</span>
+            </button>
+          </div>
+        </div>
+
+        {/* --- MAIN SPREADSHEET BODY --- */}
+        <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: '#ffffff', display: 'flex', flexDirection: 'column' }}>
+          {/* VIEW MODE 1: NATIVE SPREADSHEET GRID */}
+          {viewMode === 'grid' && (
+            <div style={{ flex: 1, overflow: 'auto', position: 'relative' }}>
+              <table
+                style={{
+                  width: '100%',
+                  borderCollapse: 'collapse',
+                  fontFamily: 'Segoe UI, system-ui, -apple-system, sans-serif',
+                  fontSize: '0.8rem',
+                  tableLayout: 'auto'
+                }}
+              >
+                {/* GRID TABLE HEADER (A, B, C... + Field Names) */}
+                <thead>
+                  {/* Row 1: Excel Column Letters A, B, C, D... */}
+                  <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #cbd5e1' }}>
+                    <th
+                      style={{
+                        width: '45px',
+                        minWidth: '45px',
+                        background: '#e2e8f0',
+                        color: '#64748b',
+                        fontWeight: '700',
+                        textAlign: 'center',
+                        padding: '0.35rem 0.5rem',
+                        borderRight: '1px solid #cbd5e1',
+                        position: 'sticky',
+                        top: 0,
+                        zIndex: 3
+                      }}
+                    >
+                      FX
+                    </th>
+                    {columns.map((colName, idx) => (
+                      <th
+                        key={`letter-${idx}`}
+                        style={{
+                          background: '#f1f5f9',
+                          color: '#475569',
+                          fontWeight: '700',
+                          fontSize: '0.7rem',
+                          textAlign: 'center',
+                          padding: '0.2rem 0.5rem',
+                          borderRight: '1px solid #cbd5e1',
+                          borderBottom: '1px solid #e2e8f0',
+                          position: 'sticky',
+                          top: 0,
+                          zIndex: 2,
+                          textTransform: 'uppercase'
+                        }}
+                      >
+                        {getColLetter(idx)}
+                      </th>
+                    ))}
+                  </tr>
+
+                  {/* Row 2: Field Names */}
+                  <tr style={{ background: '#059669', color: '#ffffff' }}>
+                    <th
+                      style={{
+                        background: '#047857',
+                        color: '#ffffff',
+                        fontWeight: '800',
+                        textAlign: 'center',
+                        padding: '0.5rem',
+                        borderRight: '1px solid #065f46',
+                        position: 'sticky',
+                        top: '25px',
+                        zIndex: 3
+                      }}
+                    >
+                      #
+                    </th>
+                    {columns.map((colName, idx) => (
+                      <th
+                        key={`col-${idx}`}
+                        style={{
+                          padding: '0.55rem 0.85rem',
+                          fontWeight: '700',
+                          textAlign: 'left',
+                          whiteSpace: 'nowrap',
+                          borderRight: '1px solid #047857',
+                          position: 'sticky',
+                          top: '25px',
+                          zIndex: 2
+                        }}
+                      >
+                        {colName}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+
+                {/* GRID TABLE BODY */}
+                <tbody>
+                  {pageRows.length > 0 ? (
+                    pageRows.map((row, rIdx) => {
+                      const globalRowIndex = (currentPage - 1) * pageSize + rIdx + 1;
+                      const isEven = rIdx % 2 === 0;
+
+                      return (
+                        <tr
+                          key={`r-${rIdx}`}
+                          style={{
+                            background: isEven ? '#ffffff' : '#f8fafc',
+                            transition: 'background 0.15s ease'
+                          }}
+                          className="spreadsheet-row"
+                        >
+                          {/* Row Number Column */}
+                          <td
+                            style={{
+                              background: '#f1f5f9',
+                              color: '#64748b',
+                              fontWeight: '700',
+                              textAlign: 'center',
+                              fontSize: '0.72rem',
+                              padding: '0.45rem 0.5rem',
+                              borderRight: '1px solid #cbd5e1',
+                              borderBottom: '1px solid #cbd5e1',
+                              position: 'sticky',
+                              left: 0,
+                              zIndex: 1
+                            }}
+                          >
+                            {globalRowIndex}
+                          </td>
+
+                          {/* Cell Columns */}
+                          {columns.map((colName, cIdx) => {
+                            const val = row[colName] !== undefined && row[colName] !== null ? String(row[colName]) : '';
+                            const isEmail = val.includes('@');
+                            const isUrl = val.startsWith('http://') || val.startsWith('https://');
+
+                            return (
+                              <td
+                                key={`c-${cIdx}`}
+                                style={{
+                                  padding: '0.45rem 0.85rem',
+                                  borderRight: '1px solid #e2e8f0',
+                                  borderBottom: '1px solid #e2e8f0',
+                                  whiteSpace: 'nowrap',
+                                  maxWidth: '300px',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  color: isUrl ? '#2563eb' : isEmail ? '#0f766e' : '#1e293b'
+                                }}
+                                title={val}
+                              >
+                                {isUrl ? (
+                                  <a href={val} target="_blank" rel="noreferrer" style={{ color: '#2563eb', textDecoration: 'underline' }}>
+                                    View Link
+                                  </a>
+                                ) : (
+                                  val || '-'
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td
+                        colSpan={columns.length + 1}
+                        style={{
+                          padding: '3rem 1.5rem',
+                          textAlign: 'center',
+                          color: '#64748b',
+                          background: '#ffffff'
+                        }}
+                      >
+                        <FileSpreadsheet size={42} color="#94a3b8" style={{ marginBottom: '0.5rem' }} />
+                        <h4 style={{ fontSize: '1rem', fontWeight: '700', margin: '0 0 0.25rem 0', color: '#334155' }}>
+                          No Spreadsheet Entries Found
+                        </h4>
+                        <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0 }}>
+                          {searchTerm ? `No rows matching "${searchTerm}". Try clearing search.` : 'Click "Refresh Sheet" above to fetch live rows.'}
+                        </p>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* VIEW MODE 2: EMBEDDED GOOGLE SHEETS IFRAME */}
+          {viewMode === 'iframe' && (
+            <div style={{ flex: 1, width: '100%', height: '100%', background: '#f8fafc', position: 'relative' }}>
+              <iframe
+                title="Google Sheet Live View"
+                src={EMBED_SHEET_URL}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  border: 'none'
+                }}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* --- BOTTOM SHEET TABS BAR (GOOGLE SHEETS STYLE TABS) --- */}
+        <div
+          style={{
+            background: '#e2e8f0',
+            borderTop: '1px solid #cbd5e1',
+            padding: '0.35rem 1rem 0 1rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.25rem',
+            overflowX: 'auto'
+          }}
+        >
+          {fetchedTabs &&
+            Object.entries(fetchedTabs).map(([tabName, tabInfo]) => {
+              const isActive = selectedTabKey === tabName;
+              return (
+                <button
+                  key={tabName}
+                  type="button"
+                  onClick={() => {
+                    setSelectedTabKey(tabName);
+                    setCurrentPage(1);
+                  }}
+                  style={{
+                    background: isActive ? '#ffffff' : '#cbd5e1',
+                    color: isActive ? '#047857' : '#475569',
+                    borderTopLeftRadius: '0.4rem',
+                    borderTopRightRadius: '0.4rem',
+                    padding: '0.45rem 1rem',
+                    fontSize: '0.78rem',
+                    fontWeight: '800',
+                    border: '1px solid #cbd5e1',
+                    borderBottom: isActive ? '2px solid #059669' : '1px solid #cbd5e1',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.45rem',
+                    transition: 'all 0.15s ease',
+                    boxShadow: isActive ? '0 -2px 5px rgba(0,0,0,0.05)' : 'none'
+                  }}
+                >
+                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: isActive ? '#10b981' : '#94a3b8' }}></span>
+                  <span>{tabName}</span>
+                  <span
+                    style={{
+                      background: isActive ? '#ecfdf5' : '#e2e8f0',
+                      color: isActive ? '#047857' : '#64748b',
+                      padding: '0.1rem 0.4rem',
+                      borderRadius: '0.25rem',
+                      fontSize: '0.7rem',
+                      fontWeight: '700'
+                    }}
+                  >
+                    {tabInfo.totalRows}
+                  </span>
+                </button>
+              );
+            })}
+
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem', paddingBottom: '0.35rem' }}>
+            <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: '700' }}>
+              Lasak Edu Google Sheet Engine
+            </span>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={onClose}
+              style={{ padding: '0.25rem 0.85rem', fontSize: '0.75rem', borderRadius: '0.35rem' }}
+            >
+              Close Window
+            </button>
+          </div>
         </div>
       </div>
     </div>

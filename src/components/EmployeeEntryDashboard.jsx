@@ -17,7 +17,7 @@ import {
   Link2
 } from 'lucide-react';
 import GoogleSheetModal from './GoogleSheetModal';
-import { exportToCSV, syncToGoogleSheet } from '../utils/googleSheets';
+import { exportToCSV, syncToGoogleSheet, fetchFromGoogleSheet } from '../utils/googleSheets';
 
 const INITIAL_EMPLOYEE_ENTRIES = [
   { id: 'emp-rec-1', employeeName: 'Gukan', date: '2026-09-09', createdAt: 1725870000000 },
@@ -29,6 +29,8 @@ const INITIAL_EMPLOYEE_ENTRIES = [
   { id: 'emp-rec-7', employeeName: 'Dinshiya', date: '2026-09-06', createdAt: 1725600000000 }
 ];
 
+const DEFAULT_WEB_URL = 'https://script.google.com/macros/s/AKfycbyysKeO1b_pIiETYUZLOrNEJ1NINkZ2RVvr36ooa4ABzZxwjNHJoGS1a4k7_x6Ke_P1/exec';
+
 export default function EmployeeEntryDashboard({ currentUser }) {
   const isHead = currentUser?.roleCode === 'HEAD_ADMISSIONS';
 
@@ -39,7 +41,7 @@ export default function EmployeeEntryDashboard({ currentUser }) {
   );
   const [sheetUrl, setSheetUrl] = useLocalStorage(
     'lasak_employee_sheet_url',
-    'https://script.google.com/macros/s/AKfycbyysKeO1b_pIiETYUZLOrNEJ1NINkZ2RVvr36ooa4ABzZxwjNHJoGS1a4k7_x6Ke_P1/exec'
+    DEFAULT_WEB_URL
   );
 
   // Google Sheet Modal State
@@ -116,18 +118,23 @@ export default function EmployeeEntryDashboard({ currentUser }) {
   const handleFetchDataFromSheet = (sheetData) => {
     if (!sheetData || !sheetData.subSheets) return;
 
-    const studentSubsheet =
-      sheetData.subSheets['Student Data'] ||
-      sheetData.subSheets['Employee Entries'] ||
-      sheetData.subSheets['Demo Booking Responses'];
+    const availableTabs = Object.values(sheetData.subSheets).filter((sub) => sub && sub.data && sub.data.length > 0);
+    if (availableTabs.length > 0) {
+      const allRows = availableTabs.flatMap((sub) => sub.data);
+      const importedEntries = allRows.map((row, index) => {
+        const rawEmp = row['Student / Employee Name'] || row['Employee Name'] || row['AC Name'] || row['Staff Email'] || 'Advisor';
+        let empName = rawEmp.includes('@') ? rawEmp.split('@')[0] : rawEmp;
+        empName = empName.trim();
+        const dateStr = row['Date'] || row['Demo Date'] || row['Timestamp'] || '2026-09-09';
+        const normDate = dateStr.split('T')[0].split(' ')[0];
 
-    if (studentSubsheet && studentSubsheet.data && studentSubsheet.data.length > 0) {
-      const importedEntries = studentSubsheet.data.map((row, index) => ({
-        id: `emp-rec-gsheet-${index}-${Date.now()}`,
-        employeeName: row['Student / Employee Name'] || row['Employee Name'] || row['AC Name'] || 'Advisor',
-        date: row['Date'] || row['Demo Date'] || '2026-09-09',
-        createdAt: Date.now() - index * 1000
-      }));
+        return {
+          id: `emp-rec-gsheet-${index}-${Date.now()}`,
+          employeeName: empName.charAt(0).toUpperCase() + empName.slice(1),
+          date: normDate,
+          createdAt: Date.now() - index * 1000
+        };
+      });
 
       setEntries((prev) => {
         const existingKeys = new Set(prev.map((e) => `${e.employeeName.toLowerCase()}_${e.date}`));
@@ -136,6 +143,20 @@ export default function EmployeeEntryDashboard({ currentUser }) {
       });
     }
   };
+
+  // Auto-fetch data live from Google Sheet web app on mount
+  React.useEffect(() => {
+    const targetUrl = sheetUrl && sheetUrl.trim() ? sheetUrl.trim() : DEFAULT_WEB_URL;
+    fetchFromGoogleSheet(targetUrl)
+      .then((data) => {
+        if (data && data.subSheets) {
+          handleFetchDataFromSheet(data);
+        }
+      })
+      .catch((err) => {
+        console.warn('Auto fetch from Google Sheet in Employee Entry Dashboard skipped or failed:', err);
+      });
+  }, [sheetUrl]);
 
   // Delete Individual Entry
   const handleDelete = (id) => {

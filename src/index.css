@@ -2677,4 +2677,16 @@ body {
   color: var(--slate-700);
 }
 
+/* Spreadsheet Grid Row Hover Effects */
+.spreadsheet-row:hover {
+  background-color: #ecfdf5 !important;
+}
+
+.spreadsheet-row:hover td:first-child {
+  background-color: #d1fae5 !important;
+  color: #047857 !important;
+  font-weight: 800 !important;
+}
+
+
 
