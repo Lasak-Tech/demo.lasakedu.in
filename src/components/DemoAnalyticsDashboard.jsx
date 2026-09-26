@@ -61,11 +61,27 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
   const [newCourseKey, setNewCourseKey] = useState('MECH');
   const [newNotes, setNewNotes] = useState('');
 
-  // Determine list of employees visible to the active user
+  // Determine list of employees visible to the active user (includes dynamically fetched advisors from Google Sheet)
   const displayEmployees = useMemo(() => {
     if (isHead) {
-      return DEMO_EMPLOYEES;
+      const allAdvisorsMap = new Map();
+      DEMO_EMPLOYEES.forEach((emp) => allAdvisorsMap.set(emp.id, emp));
+      
+      // Add dynamically discovered advisors from scheduledDemos
+      scheduledDemos.forEach((demo) => {
+        if (demo.employeeId && !allAdvisorsMap.has(demo.employeeId)) {
+          allAdvisorsMap.set(demo.employeeId, {
+            id: demo.employeeId,
+            name: demo.employeeName || 'Advisor',
+            role: 'Career Advisor',
+            avatar: (demo.employeeName || 'CA').slice(0, 2).toUpperCase(),
+            email: ''
+          });
+        }
+      });
+      return Array.from(allAdvisorsMap.values());
     }
+
     // For non-Head of Admissions, display ONLY their own employee profile
     const matched = DEMO_EMPLOYEES.find(
       (emp) =>
@@ -83,7 +99,7 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
         email: currentUser?.email || ''
       }
     ];
-  }, [isHead, currentUser]);
+  }, [isHead, currentUser, scheduledDemos]);
 
   // Filtering Demos for Selected Date & User Scope
   const dateDemos = useMemo(() => {
@@ -272,38 +288,44 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
     // Robust Date Normalizer: Handles ISO, "YYYY-MM-DD", "DD/MM/YYYY", "MM/DD/YYYY", "DD-MM-YYYY", etc.
     const normalizeDate = (rawDate) => {
       if (!rawDate) return '2026-09-17';
-      const str = String(rawDate).trim().split('T')[0].split(' ')[0];
-      if (str.includes('/')) {
-        const p = str.split('/');
+      const str = String(rawDate).trim();
+
+      // Convert ISO or Date string using Date object in local time (IST +5:30)
+      try {
+        const d = new Date(str);
+        if (!isNaN(d.getTime())) {
+          const year = d.getFullYear();
+          const month = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          if (year >= 2020 && year <= 2030) {
+            return `${year}-${month}-${day}`;
+          }
+        }
+      } catch (e) {}
+
+      const datePart = str.split('T')[0].split(' ')[0];
+      if (datePart.includes('/')) {
+        const p = datePart.split('/');
         if (p.length === 3) {
           if (p[0].length === 4) return `${p[0]}-${p[1].padStart(2, '0')}-${p[2].padStart(2, '0')}`;
           const yr = p[2];
           let p0 = parseInt(p[0], 10);
           let p1 = parseInt(p[1], 10);
-          let month, day;
-          if (p0 > 12) {
-            day = p[0].padStart(2, '0');
-            month = p[1].padStart(2, '0');
-          } else if (p1 > 12) {
-            month = p[0].padStart(2, '0');
-            day = p[1].padStart(2, '0');
-          } else {
-            day = p[0].padStart(2, '0');
-            month = p[1].padStart(2, '0');
-          }
+          let month = (p0 > 12 ? p1 : p0).toString().padStart(2, '0');
+          let day = (p0 > 12 ? p0 : p1).toString().padStart(2, '0');
           return `${yr}-${month}-${day}`;
         }
-      } else if (str.includes('-')) {
-        const p = str.split('-');
+      } else if (datePart.includes('-')) {
+        const p = datePart.split('-');
         if (p.length === 3) {
-          if (p[0].length === 4) return str;
+          if (p[0].length === 4) return datePart;
           const yr = p[2];
           let month = p[1].padStart(2, '0');
           let day = p[0].padStart(2, '0');
           return `${yr}-${month}-${day}`;
         }
       }
-      return str;
+      return datePart;
     };
 
     // Robust Time Slot Normalizer & Balancer
@@ -354,11 +376,19 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
       return COURSE_KEYS[index % COURSE_KEYS.length];
     };
 
-    // Helper: Smart Advisor Resolver across all advisor profiles
+    // Helper: Smart Advisor Resolver across all advisor profiles (with dynamic auto-creation)
     const resolveEmployee = (row, index = 0) => {
       const acStr = row['AC Name'] || row['Staff Email'] || row['Employee Name'] || row['SH Name'] || row['Counselor'] || row['Advisor'] || '';
       if (acStr) {
         const s = String(acStr).toLowerCase();
+        let name = '';
+        if (s.includes('@')) {
+          name = s.split('@')[0].replace(/[0-9_.-]/g, '');
+        } else {
+          name = acStr.trim();
+        }
+        name = name.charAt(0).toUpperCase() + name.slice(1);
+
         const matched = DEMO_EMPLOYEES.find(
           (emp) =>
             s.includes(emp.name.toLowerCase()) ||
@@ -366,6 +396,17 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
             s.includes(emp.id.toLowerCase())
         );
         if (matched) return matched;
+
+        // Auto-generate profile for new sheet advisors
+        const empId = `usr-sheet-${name.toLowerCase().replace(/\s+/g, '')}`;
+        const avatar = (name || 'CA').slice(0, 2).toUpperCase();
+        return {
+          id: empId,
+          name: name || `Advisor ${index + 1}`,
+          role: 'Career Advisor',
+          avatar: avatar,
+          email: acStr
+        };
       }
       return DEMO_EMPLOYEES[index % DEMO_EMPLOYEES.length];
     };
