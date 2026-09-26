@@ -50,7 +50,7 @@ export default function GoogleSheetModal({
   const [viewMode, setViewMode] = useState('grid');
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(100);
 
   // Helper for column letters A, B, C ... Z, AA, AB
   const getColLetter = (index) => {
@@ -505,6 +505,31 @@ export default function GoogleSheetModal({
               Showing {filteredRows.length > 0 ? (currentPage - 1) * pageSize + 1 : 0} -{' '}
               {Math.min(currentPage * pageSize, filteredRows.length)} of {filteredRows.length} rows
             </div>
+
+            {/* Rows Per Page Selector */}
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              style={{
+                padding: '0.3rem 0.5rem',
+                fontSize: '0.78rem',
+                fontWeight: '700',
+                borderRadius: '0.35rem',
+                border: '1px solid #cbd5e1',
+                background: '#ffffff',
+                color: '#334155',
+                outline: 'none',
+                cursor: 'pointer'
+              }}
+            >
+              <option value={50}>50 / page</option>
+              <option value={100}>100 / page</option>
+              <option value={200}>200 / page</option>
+              <option value={10000}>Show All ({filteredRows.length})</option>
+            </select>
 
             {/* Pagination controls */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
