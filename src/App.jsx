@@ -195,7 +195,20 @@ export default function App() {
   const renderTabContent = () => {
     switch (activeTab) {
       case 'demo-analytics':
-        return <DemoAnalyticsDashboard currentUser={currentUser} />;
+      case 'demo-fixed-today':
+        return <DemoAnalyticsDashboard currentUser={currentUser} filterMode="demoDate" cleanView={true} />;
+
+      case 'demo-booking-funnel':
+        return <DemoAnalyticsDashboard currentUser={currentUser} filterMode="bookedDate" cleanView={true} />;
+
+      case 'demo-conducted':
+        return <DemoAnalyticsDashboard currentUser={currentUser} filterMode="conducted" cleanView={true} />;
+
+      case 'time-slots':
+        return <DemoAnalyticsDashboard currentUser={currentUser} filterMode="timetable" showOnlyTimetable={true} />;
+
+      case 'todays-funnel-report':
+        return <DemoAnalyticsDashboard currentUser={currentUser} filterMode="report" showOnlyReport={true} />;
 
       case 'employee':
         return <EmployeeEntryDashboard currentUser={currentUser} />;

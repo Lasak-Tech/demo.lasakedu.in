@@ -17,16 +17,23 @@ import {
   Link2
 } from 'lucide-react';
 import GoogleSheetModal from './GoogleSheetModal';
-import { exportToCSV, syncToGoogleSheet, fetchFromGoogleSheet } from '../utils/googleSheets';
+import { exportToCSV, syncToGoogleSheet, fetchFromGoogleSheet, parseCSVText, normalizeExcelEmployeeRow } from '../utils/googleSheets';
+
+const getTodayDateStr = () => new Date().toISOString().split('T')[0];
+const getOffsetDateStr = (offsetDays = 0) => {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return d.toISOString().split('T')[0];
+};
 
 const INITIAL_EMPLOYEE_ENTRIES = [
-  { id: 'emp-rec-1', employeeName: 'Gukan', date: '2026-09-09', createdAt: 1725870000000 },
-  { id: 'emp-rec-2', employeeName: 'Siva', date: '2026-09-09', createdAt: 1725865000000 },
-  { id: 'emp-rec-3', employeeName: 'Sreya', date: '2026-09-08', createdAt: 1725780000000 },
-  { id: 'emp-rec-4', employeeName: 'Aswathy', date: '2026-09-08', createdAt: 1725775000000 },
-  { id: 'emp-rec-5', employeeName: 'Parkavi', date: '2026-09-07', createdAt: 1725690000000 },
-  { id: 'emp-rec-6', employeeName: 'Hari Haran', date: '2026-09-07', createdAt: 1725685000000 },
-  { id: 'emp-rec-7', employeeName: 'Dinshiya', date: '2026-09-06', createdAt: 1725600000000 }
+  { id: 'emp-rec-1', employeeName: 'Gukan', date: getOffsetDateStr(0), createdAt: Date.now() },
+  { id: 'emp-rec-2', employeeName: 'Siva', date: getOffsetDateStr(0), createdAt: Date.now() - 3600000 },
+  { id: 'emp-rec-3', employeeName: 'Sreya', date: getOffsetDateStr(-1), createdAt: Date.now() - 86400000 },
+  { id: 'emp-rec-4', employeeName: 'Aswathy', date: getOffsetDateStr(-1), createdAt: Date.now() - 90000000 },
+  { id: 'emp-rec-5', employeeName: 'Parkavi', date: getOffsetDateStr(-2), createdAt: Date.now() - 172800000 },
+  { id: 'emp-rec-6', employeeName: 'Hari Haran', date: getOffsetDateStr(-2), createdAt: Date.now() - 176400000 },
+  { id: 'emp-rec-7', employeeName: 'Dinshiya', date: getOffsetDateStr(-3), createdAt: Date.now() - 259200000 }
 ];
 
 const DEFAULT_WEB_URL = 'https://script.google.com/macros/s/AKfycbyysKeO1b_pIiETYUZLOrNEJ1NINkZ2RVvr36ooa4ABzZxwjNHJoGS1a4k7_x6Ke_P1/exec';
@@ -51,7 +58,7 @@ export default function EmployeeEntryDashboard({ currentUser }) {
   const [employeeName, setEmployeeName] = useState(
     !isHead && currentUser?.name ? currentUser.name : ''
   );
-  const [entryDate, setEntryDate] = useState('2026-09-09');
+  const [entryDate, setEntryDate] = useState(getTodayDateStr());
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
@@ -201,6 +208,37 @@ export default function EmployeeEntryDashboard({ currentUser }) {
     }
   };
 
+  const handleDirectExcelUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target.result;
+        const rawRows = parseCSVText(text);
+        if (rawRows.length === 0) {
+          alert('No valid records found in the uploaded file.');
+          return;
+        }
+
+        const normalizedNewEntries = rawRows.map((r, idx) => normalizeExcelEmployeeRow(r, idx));
+        setEntries((prev) => {
+          const existingKeys = new Set(prev.map((item) => `${item.employeeName.toLowerCase()}_${item.date}`));
+          const uniqueNew = normalizedNewEntries.filter(
+            (item) => !existingKeys.has(`${item.employeeName.toLowerCase()}_${item.date}`)
+          );
+          return [...uniqueNew, ...prev];
+        });
+
+        alert(`Successfully imported ${normalizedNewEntries.length} employee entry record(s) from "${file.name}" up to date!`);
+      } catch (err) {
+        alert(`Error importing Excel file: ${err.message}`);
+      }
+    };
+    reader.readAsText(file);
+  };
+
   return (
     <div className="employee-dashboard-wrapper">
       {/* Dashboard Page Header */}
@@ -223,6 +261,32 @@ export default function EmployeeEntryDashboard({ currentUser }) {
 
         {/* Google Sheet & Export Action Bar */}
         <div style={{ display: 'flex', gap: '0.65rem', alignItems: 'center' }}>
+          <label
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              padding: '0.5rem 0.85rem',
+              fontSize: '0.85rem',
+              fontWeight: '700',
+              borderRadius: '0.5rem',
+              border: '1px solid #10b981',
+              background: '#ecfdf5',
+              color: '#047857',
+              cursor: 'pointer'
+            }}
+            title="Import local Excel or CSV file up to date"
+          >
+            <FileSpreadsheet size={16} color="#059669" />
+            <span>Upload Excel</span>
+            <input
+              type="file"
+              accept=".csv, .xlsx, .xls, .tsv"
+              onChange={handleDirectExcelUpload}
+              style={{ display: 'none' }}
+            />
+          </label>
+
           <button
             type="button"
             className="btn-secondary"

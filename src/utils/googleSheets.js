@@ -26,6 +26,149 @@ export const exportToCSV = (filename, headers, rows) => {
   return true;
 };
 
+// Parse CSV or TSV text from uploaded Excel file into array of row objects
+export const parseCSVText = (csvText) => {
+  if (!csvText || !csvText.trim()) return [];
+  const lines = csvText.trim().split(/\r?\n/);
+  if (lines.length < 2) return [];
+
+  const delimiter = lines[0].includes('\t') ? '\t' : ',';
+
+  const parseRow = (line) => {
+    const values = [];
+    let insideQuotes = false;
+    let currentVal = '';
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"' && (i === 0 || line[i - 1] !== '\\')) {
+        insideQuotes = !insideQuotes;
+      } else if (char === delimiter && !insideQuotes) {
+        values.push(currentVal.replace(/^"|"$/g, '').trim());
+        currentVal = '';
+      } else {
+        currentVal += char;
+      }
+    }
+    values.push(currentVal.replace(/^"|"$/g, '').trim());
+    return values;
+  };
+
+  const headers = parseRow(lines[0]);
+  const rows = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    const values = parseRow(lines[i]);
+    const rowObj = {};
+    headers.forEach((h, idx) => {
+      rowObj[h] = values[idx] ?? '';
+    });
+    rows.push(rowObj);
+  }
+
+  return rows;
+};
+
+// Normalize Excel/CSV demo schedule row into standard format
+export const normalizeExcelDemoRow = (row, index) => {
+  const findVal = (...keys) => {
+    for (const key of keys) {
+      const foundKey = Object.keys(row).find(
+        (k) => k.toLowerCase().replace(/[^a-z0-9]/g, '') === key.toLowerCase().replace(/[^a-z0-9]/g, '')
+      );
+      if (foundKey && row[foundKey] !== undefined && row[foundKey] !== null) {
+        return String(row[foundKey]).trim();
+      }
+    }
+    return '';
+  };
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const rawDate = findVal('demodate', 'date', 'timestamp', 'createdat') || todayStr;
+  let formattedDate = todayStr;
+  if (rawDate.includes('T')) {
+    formattedDate = rawDate.split('T')[0];
+  } else if (rawDate.includes('-')) {
+    formattedDate = rawDate.split(' ')[0];
+  } else if (rawDate.includes('/')) {
+    const parts = rawDate.split('/');
+    if (parts.length === 3) {
+      if (parts[2].length === 4) {
+        formattedDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+      } else if (parts[0].length === 4) {
+        formattedDate = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+      }
+    }
+  }
+
+  const courseRaw = findVal('coursename', 'course', 'coursekey') || 'MECH';
+  let courseKey = 'MECH';
+  if (courseRaw.toUpperCase().includes('MERN') || courseRaw.toUpperCase().includes('WEB') || courseRaw.toUpperCase().includes('REACT')) courseKey = 'MERN';
+  else if (courseRaw.toUpperCase().includes('CIVIL') || courseRaw.toUpperCase().includes('BIM')) courseKey = 'CIVIL';
+  else if (courseRaw.toUpperCase().includes('DM') || courseRaw.toUpperCase().includes('MARKETING')) courseKey = 'DM';
+  else if (courseRaw.toUpperCase().includes('MECH')) courseKey = 'MECH';
+
+  const statusRaw = findVal('status') || 'Fixed';
+  let status = 'Fixed';
+  if (statusRaw.toLowerCase().includes('conducted') || statusRaw.toLowerCase().includes('done') || statusRaw.toLowerCase().includes('completed')) {
+    status = 'Conducted';
+  } else if (statusRaw.toLowerCase().includes('cancel')) {
+    status = 'Cancelled';
+  }
+
+  return {
+    id: `excel-sch-${Date.now()}-${index}`,
+    date: formattedDate,
+    timeSlot: findVal('timeslot', 'demotime', 'time') || '11:00 AM - 12:00 PM',
+    employeeId: findVal('employeeid', 'acname', 'employeename', 'advisor') || 'usr-4',
+    employeeName: findVal('employeename', 'acname', 'advisor', 'name') || 'Career Advisor',
+    courseKey,
+    prospectName: findVal('prospectname', 'studentname', 'prospect', 'student') || 'Prospect Student',
+    prospectPhone: findVal('prospectphone', 'studentphone', 'phone', 'mobile') || '+91 98000 00000',
+    status,
+    notes: findVal('notes', 'comments', 'remarks') || 'Imported from Excel File'
+  };
+};
+
+// Normalize Excel/CSV employee entry row into standard format
+export const normalizeExcelEmployeeRow = (row, index) => {
+  const findVal = (...keys) => {
+    for (const key of keys) {
+      const foundKey = Object.keys(row).find(
+        (k) => k.toLowerCase().replace(/[^a-z0-9]/g, '') === key.toLowerCase().replace(/[^a-z0-9]/g, '')
+      );
+      if (foundKey && row[foundKey] !== undefined && row[foundKey] !== null) {
+        return String(row[foundKey]).trim();
+      }
+    }
+    return '';
+  };
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const rawDate = findVal('date', 'createdat', 'timestamp') || todayStr;
+  let formattedDate = todayStr;
+  if (rawDate.includes('T')) {
+    formattedDate = rawDate.split('T')[0];
+  } else if (rawDate.includes('-')) {
+    formattedDate = rawDate.split(' ')[0];
+  } else if (rawDate.includes('/')) {
+    const parts = rawDate.split('/');
+    if (parts.length === 3) {
+      if (parts[2].length === 4) {
+        formattedDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+      }
+    }
+  }
+
+  return {
+    id: `excel-emp-${Date.now()}-${index}`,
+    employeeName: findVal('employeename', 'name', 'acname', 'studentemployeename') || 'Staff Member',
+    date: formattedDate,
+    createdAt: Date.now() - (index * 1000)
+  };
+};
+
+
 // Sync payload to Google Apps Script Web App URL targeting specific sub-sheet tabs
 export const syncToGoogleSheet = async (webAppUrl, actionType, dataPayload, targetSubSheet = '') => {
   if (!webAppUrl || !webAppUrl.trim()) {
@@ -113,7 +256,7 @@ export const fetchFromGoogleSheet = async (webAppUrl) => {
       subSheetsResult['Revenue Responses'] = { totalRows: json.length, data: json };
 
       // Try fetching specific tabs in parallel to build complete multi-sheet view
-      const tabsToFetch = ['Demo Booking Responses', 'Revenue Responses', 'Demo Conduction Responses', 'Student Data'];
+      const tabsToFetch = ['Demo Booking Responses', 'Bookings & Demo Done', 'Demo Conduction Responses', 'Revenue Responses', 'Student Data'];
       await Promise.all(
         tabsToFetch.map(async (tabName) => {
           try {

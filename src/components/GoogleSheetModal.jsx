@@ -21,10 +21,30 @@ import {
   Grid,
   Maximize2
 } from 'lucide-react';
-import { APPS_SCRIPT_TEMPLATE, fetchFromGoogleSheet } from '../utils/googleSheets';
+import { APPS_SCRIPT_TEMPLATE, fetchFromGoogleSheet, parseCSVText } from '../utils/googleSheets';
+import { ALL_MASTER_DEMO_RECORDS } from '../data/allDemoRecords';
 
 const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbyysKeO1b_pIiETYUZLOrNEJ1NINkZ2RVvr36ooa4ABzZxwjNHJoGS1a4k7_x6Ke_P1/exec';
-const EMBED_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1_XXDnftilVvpwOysCzigKPHIwGPo1N07CFZsiQ1lh84/preview';
+const EMBED_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1_XXDnftilVvpwOysCzigKPHlwGPo1N07CFZSiQ1lh84/preview?gid=963728930';
+
+const INITIAL_MASTER_TABS = {
+  'Demo Booking Responses': {
+    headers: ['Timestamp', 'AC Name', 'Student Name', 'Student Email', 'Student Phone', 'Demo Date', 'Demo Time', 'Course Name', 'Price Pitched', 'Comments'],
+    totalRows: ALL_MASTER_DEMO_RECORDS.length,
+    data: ALL_MASTER_DEMO_RECORDS.map((r) => ({
+      'Timestamp': r.timestamp,
+      'AC Name': r.acEmail,
+      'Student Name': r.studentName,
+      'Student Email': r.studentEmail,
+      'Student Phone': r.studentPhone,
+      'Demo Date': r.rawDemoDate,
+      'Demo Time': r.demoTime,
+      'Course Name': r.courseName,
+      'Price Pitched': r.pricePitched,
+      'Comments': r.comments
+    }))
+  }
+};
 
 export default function GoogleSheetModal({
   isOpen,
@@ -43,14 +63,14 @@ export default function GoogleSheetModal({
   const [isFetching, setIsFetching] = useState(false);
   const [syncStatus, setSyncStatus] = useState(null); // { type: 'success'|'error', text: '' }
   const [showCodeGuide, setShowCodeGuide] = useState(false);
-  const [fetchedTabs, setFetchedTabs] = useState(null);
-  const [selectedTabKey, setSelectedTabKey] = useState(null);
+  const [fetchedTabs, setFetchedTabs] = useState(INITIAL_MASTER_TABS);
+  const [selectedTabKey, setSelectedTabKey] = useState('Demo Booking Responses');
   
   // View Modes: 'grid' (Interactive Spreadsheet Grid), 'iframe' (Embedded Google Sheet), 'settings' (Cloud Setup)
   const [viewMode, setViewMode] = useState('grid');
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(100);
+  const [pageSize, setPageSize] = useState(250); // Default to 250 so all 185 rows up to 26th are shown at once
 
   // Helper for column letters A, B, C ... Z, AA, AB
   const getColLetter = (index) => {
@@ -66,10 +86,8 @@ export default function GoogleSheetModal({
   useEffect(() => {
     if (isOpen) {
       setUrlInput(sheetUrl && sheetUrl.trim() ? sheetUrl : DEFAULT_WEB_APP_URL);
-      // Auto trigger fetch on mount if no tabs loaded yet
-      if (!fetchedTabs) {
-        handleTriggerFetch();
-      }
+      // Auto trigger fetch on mount or whenever modal opens to guarantee fresh data
+      handleTriggerFetch();
     }
   }, [isOpen]);
 
@@ -148,6 +166,53 @@ export default function GoogleSheetModal({
     }
   };
 
+  const handleExcelFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target.result;
+        const parsedRows = parseCSVText(text);
+        if (parsedRows.length === 0) {
+          setSyncStatus({ type: 'error', text: 'No rows found in uploaded Excel/CSV file.' });
+          return;
+        }
+
+        const sheetName = file.name.replace(/\.[^/.]+$/, '') || 'Uploaded Excel Sheet';
+        setFetchedTabs((prev) => ({
+          ...prev,
+          [sheetName]: {
+            headers: Object.keys(parsedRows[0] || {}),
+            totalRows: parsedRows.length,
+            data: parsedRows
+          }
+        }));
+        setSelectedTabKey(sheetName);
+
+        if (onFetchData) {
+          onFetchData({
+            status: 'success',
+            spreadsheetName: file.name,
+            subSheets: {
+              [sheetName]: { totalRows: parsedRows.length, data: parsedRows }
+            }
+          });
+        }
+
+        setSyncStatus({
+          type: 'success',
+          text: `Successfully imported ${parsedRows.length} entries from Excel file "${file.name}" up to date!`
+        });
+      } catch (err) {
+        setSyncStatus({ type: 'error', text: `Error reading Excel file: ${err.message}` });
+      }
+    };
+
+    reader.readAsText(file);
+  };
+
   const [filterDate, setFilterDate] = useState('ALL');
 
   // Extract columns and non-empty rows for active tab
@@ -162,14 +227,38 @@ export default function GoogleSheetModal({
     });
   }, [currentTab]);
 
-  // Extract all unique dates in active tab for date dropdown filter
+  // Robust date standardizer for filtering
+  const normalizeDateValue = (val) => {
+    if (!val) return '';
+    const str = String(val).trim();
+    try {
+      const d = new Date(str);
+      if (!isNaN(d.getTime())) {
+        const yr = d.getFullYear();
+        const mo = String(d.getMonth() + 1).padStart(2, '0');
+        const da = String(d.getDate()).padStart(2, '0');
+        if (yr >= 2020 && yr <= 2030) return `${yr}-${mo}-${da}`;
+      }
+    } catch (e) {}
+    if (str.includes('/')) {
+      const p = str.split(' ')[0].split('/');
+      if (p.length === 3) {
+        if (p[2].length === 4) return `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
+        if (p[0].length === 4) return `${p[0]}-${p[1].padStart(2, '0')}-${p[2].padStart(2, '0')}`;
+      }
+    }
+    return str.split('T')[0].split(' ')[0];
+  };
+
+  // Extract all unique dates in active tab (prioritizing Demo Date over Timestamp)
   const availableTabDates = useMemo(() => {
     const dates = new Set();
     validRows.forEach((row) => {
-      const dt = row['Timestamp'] || row['Demo Date'] || row['Date'];
+      // Prioritize Demo Date, Date, Date of Demo over Timestamp
+      const dt = row['Demo Date'] || row['Date'] || row['Date of Demo'] || row['Timestamp'];
       if (dt) {
-        const dStr = String(dt).slice(0, 10);
-        if (dStr.startsWith('202')) dates.add(dStr);
+        const norm = normalizeDateValue(dt);
+        if (norm) dates.add(norm);
       }
     });
     return Array.from(dates).sort((a, b) => b.localeCompare(a));
@@ -184,17 +273,24 @@ export default function GoogleSheetModal({
     validRows.forEach((row) => {
       Object.keys(row).forEach((k) => keySet.add(k));
     });
-    return Array.from(keySet);
+
+    const keys = Array.from(keySet);
+
+    // Smart Column Ordering: Non-numeric label headers (e.g. Bookings, AC Name, Timestamp) must appear FIRST on the left.
+    const textLabelKeys = keys.filter((k) => isNaN(Number(k)));
+    const numericKeys = keys.filter((k) => !isNaN(Number(k))).sort((a, b) => Number(a) - Number(b));
+
+    return [...textLabelKeys, ...numericKeys];
   }, [currentTab, validRows]);
 
-  // Filtered rows by search term & Date Filter
+  // Filtered rows by search term & Date Filter (prioritizing Demo Date over Timestamp)
   const filteredRows = useMemo(() => {
     return validRows.filter((row) => {
       // Date Filter
       if (filterDate !== 'ALL') {
-        const dt = row['Timestamp'] || row['Demo Date'] || row['Date'];
-        const dStr = dt ? String(dt).slice(0, 10) : '';
-        if (!dStr.includes(filterDate)) return false;
+        const dt = row['Demo Date'] || row['Date'] || row['Date of Demo'] || row['Timestamp'];
+        const norm = normalizeDateValue(dt);
+        if (norm !== filterDate && !String(dt).includes(filterDate)) return false;
       }
       // Search Filter
       if (searchTerm.trim()) {
@@ -334,6 +430,32 @@ export default function GoogleSheetModal({
               </button>
             </div>
 
+            <label
+              style={{
+                background: '#10b981',
+                border: 'none',
+                color: '#ffffff',
+                borderRadius: '0.5rem',
+                padding: '0.45rem 0.85rem',
+                fontSize: '0.78rem',
+                fontWeight: '700',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                cursor: 'pointer'
+              }}
+              title="Import local Excel or CSV file up to date"
+            >
+              <DownloadCloud size={14} />
+              <span>Upload Excel</span>
+              <input
+                type="file"
+                accept=".csv, .xlsx, .xls, .tsv, .txt"
+                onChange={handleExcelFileUpload}
+                style={{ display: 'none' }}
+              />
+            </label>
+
             <button
               type="button"
               onClick={handleTriggerFetch}
@@ -357,7 +479,7 @@ export default function GoogleSheetModal({
             </button>
 
             <a
-              href="https://docs.google.com/spreadsheets/d/1_XXDnftilVvpwOysCzigKPHIwGPo1N07CFZsiQ1lh84/edit"
+              href="https://docs.google.com/spreadsheets/d/1_XXDnftilVvpwOysCzigKPHlwGPo1N07CFZSiQ1lh84/edit?gid=963728930#gid=963728930"
               target="_blank"
               rel="noopener noreferrer"
               style={{

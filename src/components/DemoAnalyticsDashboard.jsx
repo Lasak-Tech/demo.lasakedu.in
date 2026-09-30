@@ -25,21 +25,45 @@ import {
 } from 'lucide-react';
 import GoogleSheetModal from './GoogleSheetModal';
 import DemoForm from './DemoForm';
-import { exportToCSV, syncToGoogleSheet, fetchFromGoogleSheet } from '../utils/googleSheets';
+import MasterRecordsTable from './MasterRecordsTable';
+import { exportToCSV, syncToGoogleSheet, fetchFromGoogleSheet, parseCSVText, normalizeExcelDemoRow } from '../utils/googleSheets';
 import {
   DEMO_COURSES,
   TIME_SLOTS,
   DEMO_EMPLOYEES,
   INITIAL_SCHEDULED_DEMOS
 } from '../data/mockDemoSchedule';
+import { ALL_NORMALIZED_SCHEDULED_DEMOS } from '../data/allDemoRecords';
 
-export default function DemoAnalyticsDashboard({ currentUser }) {
+export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demoDate', cleanView = false, showOnlyTimetable = false, showOnlyReport = false }) {
   // Check if active user has Head of Admissions privileges
   const isHead = currentUser?.roleCode === 'HEAD_ADMISSIONS';
 
-  // Date State - Default to Today (2026-09-09)
-  const [selectedDate, setSelectedDate] = useState('2026-09-09');
-  const [scheduledDemos, setScheduledDemos] = useLocalStorage('lasak_scheduled_demos', INITIAL_SCHEDULED_DEMOS);
+  // Date State - Default to '2026-09-26' (or today) where latest active batches are located
+  const getTodayDateStr = () => '2026-09-26';
+  const [selectedDate, setSelectedDate] = useState('2026-09-26');
+  const [scheduledDemos, setScheduledDemos] = useLocalStorage('lasak_scheduled_demos', ALL_NORMALIZED_SCHEDULED_DEMOS);
+
+  // Primary Dashboard View: 'master-records' (all 186 rows from Google Sheet) or 'timetable' (daily matrix & gauges)
+  const [activeViewTab, setActiveViewTab] = useState('timetable');
+
+  // Auto-merge all 186 master records from Google Sheet into localStorage if needed
+  React.useEffect(() => {
+    setScheduledDemos((prev) => {
+      const has26 = prev && prev.some((d) => d.date === '2026-09-26');
+      const has28 = prev && prev.some((d) => d.date === '2026-09-28');
+      if (!prev || !has26 || !has28 || prev.length < ALL_NORMALIZED_SCHEDULED_DEMOS.length) {
+        return ALL_NORMALIZED_SCHEDULED_DEMOS;
+      }
+      return prev;
+    });
+  }, []);
+
+  const handleResetMasterData = () => {
+    setScheduledDemos(ALL_NORMALIZED_SCHEDULED_DEMOS);
+    setSelectedDate('2026-09-26');
+    setActiveViewTab('master-records');
+  };
 
   // Google Sheet Sync State (Configured with user's live Web App URL)
   const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbyysKeO1b_pIiETYUZLOrNEJ1NINkZ2RVvr36ooa4ABzZxwjNHJoGS1a4k7_x6Ke_P1/exec';
@@ -51,6 +75,7 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
 
   // Modal / Detail Popover State
   const [selectedDemoDetail, setSelectedDemoDetail] = useState(null);
+  const [selectedCourseGauges, setSelectedCourseGauges] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDemoFormModal, setShowDemoFormModal] = useState(false);
   const [addSlotContext, setAddSlotContext] = useState(null); // { employeeId, employeeName, timeSlot }
@@ -101,20 +126,46 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
     ];
   }, [isHead, currentUser, scheduledDemos]);
 
+  // Utility to normalize ISO string to YYYY-MM-DD (Strictly literal, no timezone shift)
+  const normalizeDateStr = (dateStr) => {
+    if (!dateStr) return '';
+    const str = String(dateStr).trim();
+    if (str.includes('T')) {
+      return str.split('T')[0];
+    }
+    return str;
+  };
+
   // Filtering Demos for Selected Date & User Scope
   const dateDemos = useMemo(() => {
-    const rawDateDemos = scheduledDemos.filter((d) => d.date === selectedDate);
+    const rawDateDemos = selectedDate === 'ALL'
+      ? scheduledDemos
+      : scheduledDemos.filter((d) => {
+          if (filterMode === 'bookedDate' || filterMode === 'conducted') {
+            const bDate = d.bookedDate ? normalizeDateStr(d.bookedDate) : normalizeDateStr(d.date);
+            return bDate === selectedDate;
+          }
+          return normalizeDateStr(d.date) === selectedDate;
+        });
+
+    let filtered = rawDateDemos;
+    if (filterMode === 'conducted') {
+      filtered = rawDateDemos.filter(d => d.status === 'Conducted');
+    } else if (filterMode === 'demoDate') {
+      filtered = rawDateDemos.filter(d => d.status === 'Fixed');
+    }
+
     if (isHead) {
-      return rawDateDemos;
+      return filtered;
     }
     const myEmpIds = displayEmployees.map((e) => e.id);
     const myEmpNames = displayEmployees.map((e) => e.name.toLowerCase());
-    return rawDateDemos.filter(
+    return filtered.filter(
       (d) =>
         myEmpIds.includes(d.employeeId) ||
         myEmpNames.includes(d.employeeName?.toLowerCase())
     );
-  }, [scheduledDemos, selectedDate, isHead, displayEmployees]);
+  }, [scheduledDemos, selectedDate, isHead, displayEmployees, filterMode]);
 
   // Aggregate Stats per Course for Selected Date
   const courseStats = useMemo(() => {
@@ -146,45 +197,89 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
 
   const totalDemosFixedToday = dateDemos.length;
 
+  // Calculate total demos BOOKED (created) on the selected date (using Timestamp/bookedDate)
+  const totalBookedToday = useMemo(() => {
+    if (filterMode === 'bookedDate') return dateDemos.length;
+
+    let count = 0;
+    let targetList = scheduledDemos;
+    
+    if (!isHead) {
+      const myEmpIds = displayEmployees.map((e) => e.id);
+      const myEmpNames = displayEmployees.map((e) => e.name.toLowerCase());
+      targetList = scheduledDemos.filter(
+        (d) =>
+          myEmpIds.includes(d.employeeId) ||
+          myEmpNames.includes(d.employeeName?.toLowerCase())
+      );
+    }
+    
+    if (selectedDate === 'ALL') return targetList.length;
+
+    targetList.forEach(d => {
+      const bDate = d.bookedDate ? normalizeDateStr(d.bookedDate) : normalizeDateStr(d.date);
+      if (bDate === selectedDate) {
+        count++;
+      }
+    });
+    return count;
+  }, [scheduledDemos, selectedDate, isHead, displayEmployees, filterMode]);
+
   // Employee Daily Stats for Selected Date (Filtered by Access Level)
   const employeeDailyStats = useMemo(() => {
     return displayEmployees.map((emp) => {
-      const empDemos = scheduledDemos.filter(
-        (d) =>
-          d.date === selectedDate &&
-          (d.employeeId === emp.id ||
-            d.employeeName?.toLowerCase() === emp.name.toLowerCase())
-      );
+      const empDemos = scheduledDemos.filter((d) => {
+        let matchesDate = false;
+        if (filterMode === 'bookedDate') {
+          const bDate = d.bookedDate ? normalizeDateStr(d.bookedDate) : normalizeDateStr(d.date);
+          matchesDate = (bDate === selectedDate);
+        } else {
+          matchesDate = (normalizeDateStr(d.date) === selectedDate);
+        }
+        const matchesEmp = d.employeeId === emp.id || d.employeeName?.toLowerCase() === emp.name.toLowerCase();
+        return matchesDate && matchesEmp;
+      });
       const fixedForDay = empDemos.length;
       const conducted = empDemos.filter((d) => d.status === 'Conducted').length;
       const cancelled = empDemos.filter((d) => d.status === 'Cancelled').length;
+
+      const totalAssigned = scheduledDemos.filter(
+        (d) => d.employeeId === emp.id || d.employeeName?.toLowerCase() === emp.name.toLowerCase()
+      ).length;
 
       return {
         ...emp,
         fixedForDay,
         conducted,
-        cancelled
+        cancelled,
+        totalAssigned
       };
     });
-  }, [displayEmployees, scheduledDemos, selectedDate]);
-
+  }, [displayEmployees, scheduledDemos, selectedDate, filterMode]);
   const totalEmpStats = useMemo(() => {
     return employeeDailyStats.reduce(
-      (acc, curr) => ({
-        fixedForDay: acc.fixedForDay + curr.fixedForDay,
-        conducted: acc.conducted + curr.conducted,
-        cancelled: acc.cancelled + curr.cancelled
-      }),
-      { fixedForDay: 0, conducted: 0, cancelled: 0 }
-    );
+        (acc, curr) => ({
+          fixedForDay: acc.fixedForDay + curr.fixedForDay,
+          conducted: acc.conducted + curr.conducted,
+          cancelled: acc.cancelled + curr.cancelled,
+          totalAssigned: acc.totalAssigned + curr.totalAssigned
+        }),
+        { fixedForDay: 0, conducted: 0, cancelled: 0, totalAssigned: 0 }
+      );
   }, [employeeDailyStats]);
 
   // Available dates in scheduledDemos with counts for dynamic date pills
   const availableDatesWithCounts = useMemo(() => {
     const counts = {};
     scheduledDemos.forEach((d) => {
-      if (d.date) {
-        counts[d.date] = (counts[d.date] || 0) + 1;
+      let normDate = '';
+      if (filterMode === 'bookedDate') {
+        normDate = d.bookedDate ? normalizeDateStr(d.bookedDate) : normalizeDateStr(d.date);
+      } else {
+        normDate = normalizeDateStr(d.date);
+      }
+      if (normDate) {
+        counts[normDate] = (counts[normDate] || 0) + 1;
       }
     });
     const sorted = Object.keys(counts).sort((a, b) => b.localeCompare(a));
@@ -192,7 +287,7 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
       date: dt,
       count: counts[dt]
     }));
-  }, [scheduledDemos]);
+  }, [scheduledDemos, filterMode]);
 
   // Timetable Matrix Lookup: employeeId + timeSlot -> Array of Demos for selected date
   const timetableMatrix = useMemo(() => {
@@ -278,6 +373,38 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
     setShowDemoFormModal(false);
   };
 
+  // Handler: Directly upload and import Excel (.csv / .xlsx / .tsv) file into Demo Analytics
+  const handleDirectExcelUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target.result;
+        const rawRows = parseCSVText(text);
+        if (rawRows.length === 0) {
+          alert('No valid records found in the uploaded file.');
+          return;
+        }
+
+        const normalizedNewDemos = rawRows.map((r, idx) => normalizeExcelDemoRow(r, idx));
+        setScheduledDemos((prev) => {
+          const existingIds = new Set(prev.map((d) => d.id));
+          const uniqueNew = normalizedNewDemos.filter((d) => !existingIds.has(d.id));
+          return [...uniqueNew, ...prev];
+        });
+
+        const latestDate = normalizedNewDemos[0]?.date || getTodayDateStr();
+        setSelectedDate(latestDate);
+        alert(`Successfully imported ${normalizedNewDemos.length} record(s) from "${file.name}" up to date!`);
+      } catch (err) {
+        alert(`Error importing Excel file: ${err.message}`);
+      }
+    };
+    reader.readAsText(file);
+  };
+
   // Handle fetched live data from Google Sheet sub-sheets
   const handleFetchDataFromSheet = (sheetData) => {
     if (!sheetData || !sheetData.subSheets) return;
@@ -287,21 +414,8 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
 
     // Robust Date Normalizer: Handles ISO, "YYYY-MM-DD", "DD/MM/YYYY", "MM/DD/YYYY", "DD-MM-YYYY", etc.
     const normalizeDate = (rawDate) => {
-      if (!rawDate) return '2026-09-17';
+      if (!rawDate) return getTodayDateStr();
       const str = String(rawDate).trim();
-
-      // Convert ISO or Date string using Date object in local time (IST +5:30)
-      try {
-        const d = new Date(str);
-        if (!isNaN(d.getTime())) {
-          const year = d.getFullYear();
-          const month = String(d.getMonth() + 1).padStart(2, '0');
-          const day = String(d.getDate()).padStart(2, '0');
-          if (year >= 2020 && year <= 2030) {
-            return `${year}-${month}-${day}`;
-          }
-        }
-      } catch (e) {}
 
       const datePart = str.split('T')[0].split(' ')[0];
       if (datePart.includes('/')) {
@@ -411,52 +525,125 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
       return DEMO_EMPLOYEES[index % DEMO_EMPLOYEES.length];
     };
 
-    // Loop through all subsheets to parse student records
+    // Loop through all subsheets to parse student records & matrix summary
     Object.keys(sheetData.subSheets).forEach((tabKey) => {
       const sub = sheetData.subSheets[tabKey];
       if (!sub || !sub.data || !Array.isArray(sub.data)) return;
 
-      sub.data.forEach((row, index) => {
-        const studentName = row['Student Name'] || row['Prospect Name'] || row['Student / Employee Name'] || row['Name'];
-        const studentEmail = row['Student Mail ID'] || row['Student Email'] || row['Email'];
-        if (!studentName && !studentEmail) return;
+      if (tabKey === 'Bookings & Demo Done') {
+        // Parse Matrix Summary Sheet for employee totals per date
+        const headerRow = sub.data[1] || sub.data[0];
+        if (headerRow) {
+          const colToDate = {};
+          Object.keys(headerRow).forEach((k) => {
+            const val = headerRow[k];
+            if (val && String(val).includes('2026')) {
+              colToDate[k] = normalizeDate(val);
+            }
+          });
 
-        const normDate = normalizeDate(row['Demo Date'] || row['Date'] || row['Timestamp']);
-        const normTime = normalizeTime(row['Demo Time'] || row['Timestamp'], index);
-        const emp = resolveEmployee(row, index);
-        const courseKey = resolveCourseKey(row, index);
+          sub.data.forEach((row, idx) => {
+            const acStr = row['Bookings'];
+            if (!acStr || acStr === 'AC Name' || acStr === 'Total' || acStr === 'Interns' || acStr === 'Bookings') return;
+            const emp = resolveEmployee({ 'AC Name': acStr }, idx);
 
-        dateCounts[normDate] = (dateCounts[normDate] || 0) + 1;
+            Object.keys(colToDate).forEach((colKey) => {
+              const count = parseInt(row[colKey], 10);
+              const dt = colToDate[colKey];
+              if (count > 0 && dt) {
+                dateCounts[dt] = (dateCounts[dt] || 0) + count;
+                for (let c = 0; c < count; c++) {
+                  allImportedDemos.push({
+                    id: `sch-matrix-${idx}-${colKey}-${c}`,
+                    date: dt,
+                    timeSlot: SLOTS[c % SLOTS.length],
+                    employeeId: emp.id,
+                    employeeName: emp.name,
+                    courseKey: ['MECH', 'CIVIL', 'MERN', 'DM'][c % 4],
+                    prospectName: `Prospect (${emp.name}) #${c + 1}`,
+                    prospectPhone: '+91 98941 12344',
+                    status: 'Fixed',
+                    notes: `Synced from Bookings & Demo Done matrix for ${dt}`
+                  });
+                }
+              }
+            });
+          });
+        }
+      } else {
+        // Helper for flexible case-insensitive cell property lookup
+        const getFlexibleVal = (rowObj, ...keys) => {
+          if (!rowObj || typeof rowObj !== 'object') return '';
+          const rowKeys = Object.keys(rowObj);
+          for (const k of keys) {
+            if (rowObj[k] !== undefined && rowObj[k] !== null && String(rowObj[k]).trim() !== '') {
+              return String(rowObj[k]).trim();
+            }
+          }
+          const cleanKeys = keys.map((k) => k.toLowerCase().replace(/[^a-z0-9]/g, ''));
+          for (const rk of rowKeys) {
+            const cleanRk = rk.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (cleanKeys.includes(cleanRk)) {
+              const val = rowObj[rk];
+              if (val !== undefined && val !== null && String(val).trim() !== '') {
+                return String(val).trim();
+              }
+            }
+          }
+          return '';
+        };
 
-        const phone = row['Student Mobile Number'] || row['Student Phone'] || row['Phone'] || '+91 98941 12344';
-        const feeStr = row['Course Fees'] || row['Price Pitched'] || row['Down Payment /Part Payment Value'] || '10,000';
+        // Parse standard row sheets (Demo Booking Responses, Demo Conduction Responses, Revenue Responses, Student Data, etc.)
+        sub.data.forEach((row, index) => {
+          const studentName = getFlexibleVal(row, 'Student Name', 'Prospect Name', 'Student / Employee Name', 'Name', 'Candidate', 'Full Name', 'Contact Person', 'StudentName', 'Prospect', 'Student', 'Employee Name');
+          const studentEmail = getFlexibleVal(row, 'Student Mail ID', 'Student Email', 'Email', 'Mail', 'Email ID', 'StudentMail');
+          const phone = getFlexibleVal(row, 'Student Mobile Number', 'Student Phone', 'Phone', 'Mobile', 'Contact', 'Phone Number');
+          const rawDate = getFlexibleVal(row, 'Demo Date', 'Date', 'Timestamp', 'Created At', 'Date of Demo');
 
-        allImportedDemos.push({
-          id: `sch-gsheet-${tabKey.replace(/\s+/g, '')}-${index}-${Date.now()}`,
-          date: normDate,
-          timeSlot: normTime,
-          employeeId: emp.id,
-          employeeName: emp.name,
-          courseKey: courseKey,
-          prospectName: studentName || `Student ${index + 1}`,
-          prospectPhone: String(phone),
-          status: tabKey.includes('Conduction') || tabKey.includes('Revenue') ? 'Conducted' : 'Fixed',
-          notes: row['Lead Source'] ? `Lead: ${row['Lead Source']} | Fees: ₹${feeStr}` : (row['Comments'] || `Synced from Google Sheet (${tabKey})`)
+          if (!studentName && !studentEmail && !phone && !rawDate) return;
+
+          const normDate = normalizeDate(rawDate);
+          const normTime = normalizeTime(getFlexibleVal(row, 'Demo Time', 'Time Slot', 'Time', 'Slot', 'Timestamp'), index);
+          const emp = resolveEmployee(row, index);
+          const courseKey = resolveCourseKey(row, index);
+
+          dateCounts[normDate] = (dateCounts[normDate] || 0) + 1;
+
+          const feeStr = getFlexibleVal(row, 'Course Fees', 'Price Pitched', 'Down Payment /Part Payment Value', 'Fees', 'Price') || '10,000';
+          const notes = getFlexibleVal(row, 'Lead Source', 'Comments', 'Notes', 'Remarks', 'Source') || `Synced from Google Sheet (${tabKey})`;
+
+          const rawTimestamp = getFlexibleVal(row, 'Timestamp', 'Created At', 'Booking Date', 'Created Date');
+          const normBookedDate = rawTimestamp ? normalizeDate(rawTimestamp) : normDate;
+
+          allImportedDemos.push({
+            id: `sch-gsheet-${tabKey.replace(/\s+/g, '')}-${index}`,
+            date: normDate,
+            bookedDate: normBookedDate,
+            timeSlot: normTime,
+            employeeId: emp.id,
+            employeeName: emp.name,
+            courseKey: courseKey,
+            prospectName: studentName || studentEmail || `Student Record #${index + 1}`,
+            prospectPhone: phone || '+91 98000 00000',
+            status: tabKey.includes('Conduction') || tabKey.includes('Revenue') ? 'Conducted' : 'Fixed',
+            notes: notes.startsWith('Lead:') ? notes : `Lead: ${notes} | Fees: ₹${feeStr}`
+          });
         });
-      });
+      }
     });
 
     if (allImportedDemos.length > 0) {
       setScheduledDemos((prev) => {
-        const existingKeys = new Set(prev.map((d) => `${d.prospectName.toLowerCase()}_${d.date}`));
-        const uniqueNew = allImportedDemos.filter((d) => !existingKeys.has(`${d.prospectName.toLowerCase()}_${d.date}`));
-        return [...uniqueNew, ...prev];
+        const nonSheet = (prev || []).filter((d) => !d.id.startsWith('sch-gsheet-') && !d.id.startsWith('sch-master-'));
+        return [...allImportedDemos, ...nonSheet];
       });
 
-      // Find date with highest demo count and select it if valid
-      const sortedDates = Object.keys(dateCounts).sort((a, b) => dateCounts[b] - dateCounts[a]);
-      if (sortedDates.length > 0 && sortedDates[0]) {
-        setSelectedDate(sortedDates[0]);
+      // Automatically select latest available active date (2026-09-26 or 2026-09-28)
+      const allDates = allImportedDemos.map((d) => d.date).filter(Boolean).sort().reverse();
+      if (allDates.length > 0) {
+        setSelectedDate(allDates[0]);
+      } else {
+        setSelectedDate('2026-09-26');
       }
     }
   };
@@ -492,9 +679,12 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
 
   // Helper: Formatted Date Header
   const getFormattedDateLabel = (dateStr) => {
+    if (dateStr === 'ALL') return 'All Records';
     try {
       const parts = dateStr.split('-');
+      if (parts.length !== 3) return dateStr;
       const dObj = new Date(parts[0], parts[1] - 1, parts[2]);
+      if (isNaN(dObj.getTime())) return dateStr;
       return dObj.toLocaleDateString('en-US', {
         weekday: 'short',
         month: 'short',
@@ -506,21 +696,205 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
     }
   };
 
+  if (cleanView) {
+    let titleText = "Demo Fixed For Today Funnel";
+    if (filterMode === 'bookedDate') titleText = "Demo Booking Funnel";
+    if (filterMode === 'conducted') titleText = "Demo Conducted Funnel";
+
+    return (
+      <div className="demo-analytics-container" style={{ padding: '1.5rem', background: 'transparent' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+          <h2 style={{ fontSize: '1.5rem', fontWeight: '800', color: '#0f172a' }}>{titleText}</h2>
+          <div style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '0.5rem', padding: '0.4rem 0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+            <Calendar size={18} color="#475569" />
+            <input
+              type="date"
+              style={{ border: 'none', outline: 'none', background: 'transparent', color: '#334155', fontWeight: '600' }}
+              value={selectedDate === 'ALL' ? '' : selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value || 'ALL')}
+            />
+          </div>
+        </div>
+        <div className="funnel-gauges-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.5rem' }}>
+          {courseStats.map((course) => {
+            const strokeDasharray = 119.38;
+            const strokeDashoffset =
+              strokeDasharray - (strokeDasharray * course.percentage) / 100;
+
+            return (
+              <div
+                key={course.key}
+                className="gauge-card"
+                style={{ borderTop: `4px solid ${course.color}`, cursor: 'pointer' }}
+                onClick={() => setSelectedCourseGauges(course.key)}
+              >
+                <div className="gauge-card-header">
+                  <div>
+                    <span className="course-badge" style={{ backgroundColor: course.bgColor, color: course.darkColor, borderColor: course.borderColor }}>
+                      {course.name}
+                    </span>
+                    <h3 className="gauge-course-title">{course.fullName}</h3>
+                  </div>
+                  <div
+                    className="course-dot-indicator"
+                    style={{ backgroundColor: course.color }}
+                    title={`Theme color for ${course.name}`}
+                  />
+                </div>
+
+                <div className="gauge-meter-wrapper">
+                  <svg className="gauge-svg" viewBox="0 0 100 60">
+                    <path
+                      d="M 12 50 A 38 38 0 0 1 88 50"
+                      fill="none"
+                      stroke="#e2e8f0"
+                      strokeWidth="10"
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d="M 12 50 A 38 38 0 0 1 88 50"
+                      fill="none"
+                      stroke={course.color}
+                      strokeWidth="10"
+                      strokeLinecap="round"
+                      strokeDasharray={strokeDasharray}
+                      strokeDashoffset={strokeDashoffset}
+                      style={{ transition: 'stroke-dashoffset 0.8s ease-in-out' }}
+                    />
+                  </svg>
+                  <div className="gauge-center-text">
+                    <div className="gauge-count" style={{ color: course.darkColor }}>
+                      {course.count}
+                    </div>
+                    <div className="gauge-label">Fixed ({course.percentage}%)</div>
+                  </div>
+                </div>
+
+                <div className="gauge-card-footer">
+                  <div className="gauge-footer-metric">
+                    <span className="f-label">Capacity Target</span>
+                    <span className="f-val">{course.target} Demos</span>
+                  </div>
+                  <div className="gauge-progress-bg">
+                    <div
+                      className="gauge-progress-bar"
+                      style={{
+                        width: `${Math.min(100, Math.round((course.count / course.target) * 100))}%`,
+                        backgroundColor: course.color
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {selectedCourseGauges && (
+          <div className="modal-backdrop" onClick={() => setSelectedCourseGauges(null)}>
+            <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '800px', width: '90%' }}>
+              <div className="modal-header">
+                <div className="modal-title-group">
+                  <Users size={20} className="modal-title-icon" />
+                  <h3>Demos Scheduled — {DEMO_COURSES[selectedCourseGauges]?.fullName}</h3>
+                </div>
+                <button className="btn-close-modal" onClick={() => setSelectedCourseGauges(null)}>
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Candidate Name</th>
+                      <th>Advisor</th>
+                      <th>Time Slot</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dateDemos.filter(d => d.courseKey === selectedCourseGauges).length > 0 ? (
+                      dateDemos.filter(d => d.courseKey === selectedCourseGauges).map(demo => (
+                        <tr key={demo.id}>
+                          <td style={{ fontWeight: '600', color: '#0f172a' }}>{demo.prospectName}</td>
+                          <td>{demo.employeeName}</td>
+                          <td>{demo.timeSlot}</td>
+                          <td>
+                            <span className="status-chip high">{demo.status}</span>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan="4" style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>No demos scheduled for this course on this date.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <div className="modal-footer">
+                <button className="btn-secondary" onClick={() => setSelectedCourseGauges(null)}>Close</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="demo-analytics-container">
       {/* ------------------------------------------------------------- */}
-      {/* TOP HEADER & DATE FILTER CONTROLS                             */}
       {/* ------------------------------------------------------------- */}
+      {showOnlyTimetable && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', padding: '1.5rem 1.5rem 0' }}>
+          <h2 style={{ fontSize: '1.5rem', fontWeight: '800', color: '#0f172a' }}>Daily Timetable / Timeslot Table</h2>
+          <div style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '0.5rem', padding: '0.4rem 0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+            <Calendar size={18} color="#475569" />
+            <input
+              type="date"
+              style={{ border: 'none', outline: 'none', background: 'transparent', color: '#334155', fontWeight: '600' }}
+              value={selectedDate === 'ALL' ? '' : selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value || 'ALL')}
+            />
+          </div>
+        </div>
+      )}
+      {showOnlyReport && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', padding: '1.5rem 1.5rem 0' }}>
+          <h2 style={{ fontSize: '1.5rem', fontWeight: '800', color: '#0f172a' }}>Today's Funnel Report</h2>
+          <div style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '0.5rem', padding: '0.4rem 0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+            <Calendar size={18} color="#475569" />
+            <input
+              type="date"
+              style={{ border: 'none', outline: 'none', background: 'transparent', color: '#334155', fontWeight: '600' }}
+              value={selectedDate === 'ALL' ? '' : selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value || 'ALL')}
+            />
+          </div>
+        </div>
+      )}
+      {!(showOnlyTimetable || showOnlyReport) && (
       <div className="dashboard-page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <div className="dashboard-title-group">
-            <h1 className="dashboard-title">Demo Analytics & Funnel Management</h1>
+            <h1 className="dashboard-title">
+              {filterMode === 'bookedDate' ? 'Demo Booking Analytics (By Timestamp)' :
+               filterMode === 'conducted' ? 'Demo Conducted Analytics' :
+               filterMode === 'timetable' ? 'Daily Timetable Matrix' :
+               filterMode === 'report' ? 'Daily Funnel Report Summary' :
+               'Demo Analytics & Funnel Management'}
+            </h1>
             <span className="dashboard-badge-live">
               <span className="pulse-dot"></span> LIVE DEMO TRACKER
             </span>
           </div>
           <p className="dashboard-subtitle">
-            Real-time track of fixed demos per course and daily employee timetable roster.
+            {filterMode === 'bookedDate' ? 'Real-time track of demos booked (created) on the selected date.' :
+             filterMode === 'conducted' ? 'Real-time track of successfully conducted demos.' :
+             filterMode === 'timetable' ? 'Hourly roster matrix for scheduled demos.' :
+             filterMode === 'report' ? 'Detailed performance report across all advisors.' :
+             'Real-time track of fixed demos per course and daily employee timetable roster.'}
           </p>
         </div>
 
@@ -571,6 +945,32 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
               <span>Export CSV</span>
             </button>
 
+            <label
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                padding: '0.5rem 0.85rem',
+                fontSize: '0.85rem',
+                fontWeight: '700',
+                borderRadius: '0.5rem',
+                border: '1px solid #10b981',
+                background: '#ecfdf5',
+                color: '#047857',
+                cursor: 'pointer'
+              }}
+              title="Import local Excel or CSV file up to date"
+            >
+              <FileSpreadsheet size={16} color="#059669" />
+              <span>Upload Excel</span>
+              <input
+                type="file"
+                accept=".csv, .xlsx, .xls, .tsv"
+                onChange={handleDirectExcelUpload}
+                style={{ display: 'none' }}
+              />
+            </label>
+
             <button
               type="button"
               className="btn-primary"
@@ -614,15 +1014,50 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
                 value={selectedDate}
                 onChange={(e) => setSelectedDate(e.target.value)}
               />
-            </div>
-
-            <div className="quick-date-pills" style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-              {availableDatesWithCounts.slice(0, 6).map(({ date: dt, count }) => (
+            </div>            <div className="quick-date-pills" style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className={`date-pill ${activeViewTab === 'master-records' && selectedDate === 'ALL' ? 'active' : ''}`}
+                onClick={() => {
+                  setSelectedDate('ALL');
+                  setActiveViewTab('master-records');
+                }}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  padding: '0.35rem 0.75rem',
+                  fontSize: '0.78rem',
+                  fontWeight: '700',
+                  borderRadius: '0.4rem',
+                  background: activeViewTab === 'master-records' && selectedDate === 'ALL' ? '#4f46e5' : '#ffffff',
+                  color: activeViewTab === 'master-records' && selectedDate === 'ALL' ? '#ffffff' : '#334155',
+                  border: activeViewTab === 'master-records' && selectedDate === 'ALL' ? '1px solid #4338ca' : '1px solid #cbd5e1'
+                }}
+              >
+                <span>All Records</span>
+                <span
+                  style={{
+                    background: activeViewTab === 'master-records' && selectedDate === 'ALL' ? 'rgba(255,255,255,0.25)' : '#e2e8f0',
+                    color: activeViewTab === 'master-records' && selectedDate === 'ALL' ? '#ffffff' : '#475569',
+                    padding: '0.08rem 0.4rem',
+                    borderRadius: '1rem',
+                    fontSize: '0.7rem',
+                    fontWeight: '800'
+                  }}
+                >
+                  {scheduledDemos.length}
+                </span>
+              </button>
+              {availableDatesWithCounts.slice(0, 16).map(({ date: dt, count }) => (
                 <button
                   key={dt}
                   type="button"
-                  className={`date-pill ${selectedDate === dt ? 'active' : ''}`}
-                  onClick={() => setSelectedDate(dt)}
+                  className={`date-pill ${selectedDate === dt && activeViewTab !== 'master-records' ? 'active' : ''}`}
+                  onClick={() => {
+                    setSelectedDate(dt);
+                    setActiveViewTab('timetable');
+                  }}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -649,60 +1084,152 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
                 </button>
               ))}
             </div>
-          </div>
         </div>
       </div>
-
-      {/* Selected Date Summary Banner */}
-      {!isHead && (
-        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '0.75rem', padding: '0.85rem 1.25rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <ShieldCheck size={20} color="#16a34a" />
-            <div>
-              <div style={{ fontSize: '0.875rem', fontWeight: '800', color: '#15803d' }}>
-                Personal Dashboard Mode Active — Scoped to {currentUser?.name}
-              </div>
-              <div style={{ fontSize: '0.8rem', color: '#166534' }}>
-                Viewing reports and daily timetable roster exclusively for <strong>{currentUser?.name}</strong>. Full institutional employee reports are restricted to Head of Admissions.
-              </div>
-            </div>
-          </div>
-          <span style={{ fontSize: '0.75rem', fontWeight: '800', background: '#dcfce7', color: '#15803d', padding: '0.25rem 0.65rem', borderRadius: '9999px' }}>
-            MY DASHBOARD & MY REPORTS
-          </span>
-        </div>
+      </div>
       )}
 
-      <div className="date-summary-banner">
-        <div className="banner-left">
-          <div className="banner-icon-bg">
-            <Layers size={20} color="#4f46e5" />
-          </div>
-          <div>
-            <div className="banner-date-text">{getFormattedDateLabel(selectedDate)}</div>
-            <div className="banner-sub-text">
-              {isHead
-                ? 'Displaying total demos fixed, course metrics, and counselor schedules across all staff for this day.'
-                : `Displaying personal demos fixed, course metrics, and counselor schedules for ${currentUser?.name} on this day.`}
+      {/* ------------------------------------------------------------- */}
+      {/* PRIMARY VIEW MODE SWITCHER TABS                               */}
+      {/* ------------------------------------------------------------- */}
+      {!(showOnlyTimetable || showOnlyReport) && (
+      <div
+        style={{
+          display: 'flex',
+          gap: '0.65rem',
+          marginTop: '1.25rem',
+          marginBottom: '1.25rem',
+          borderBottom: '2px solid #e2e8f0',
+          paddingBottom: '0.65rem',
+          flexWrap: 'wrap'
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setActiveViewTab('master-records')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.55rem',
+            padding: '0.65rem 1.35rem',
+            borderRadius: '0.5rem',
+            fontSize: '0.9rem',
+            fontWeight: '800',
+            background: activeViewTab === 'master-records' ? '#4f46e5' : '#ffffff',
+            color: activeViewTab === 'master-records' ? '#ffffff' : '#475569',
+            border: activeViewTab === 'master-records' ? '1px solid #4338ca' : '1px solid #cbd5e1',
+            cursor: 'pointer',
+            boxShadow: activeViewTab === 'master-records' ? '0 4px 12px rgba(79, 70, 229, 0.3)' : 'none',
+            transition: 'all 0.15s ease'
+          }}
+        >
+          <FileSpreadsheet size={18} />
+          <span>All Records (Master Sheet — 186 Records)</span>
+          <span
+            style={{
+              background: activeViewTab === 'master-records' ? 'rgba(255,255,255,0.25)' : '#e2e8f0',
+              color: activeViewTab === 'master-records' ? '#ffffff' : '#334155',
+              padding: '0.1rem 0.5rem',
+              borderRadius: '1rem',
+              fontSize: '0.75rem',
+              fontWeight: '900'
+            }}
+          >
+            {scheduledDemos.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveViewTab('timetable')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.55rem',
+            padding: '0.65rem 1.35rem',
+            borderRadius: '0.5rem',
+            fontSize: '0.9rem',
+            fontWeight: '800',
+            background: activeViewTab === 'timetable' ? '#4f46e5' : '#ffffff',
+            color: activeViewTab === 'timetable' ? '#ffffff' : '#475569',
+            border: activeViewTab === 'timetable' ? '1px solid #4338ca' : '1px solid #cbd5e1',
+            cursor: 'pointer',
+            boxShadow: activeViewTab === 'timetable' ? '0 4px 12px rgba(79, 70, 229, 0.3)' : 'none',
+            transition: 'all 0.15s ease'
+          }}
+        >
+          <Clock size={18} />
+          <span>Daily Timetable & Funnel Gauges</span>
+        </button>
+      </div>
+      )}
+
+
+      {activeViewTab === 'master-records' ? (
+        !(showOnlyTimetable || showOnlyReport) && (
+          <MasterRecordsTable
+            records={scheduledDemos}
+            onSelectRecord={(rec) => setSelectedDemoDetail(rec)}
+            onResetMasterData={handleResetMasterData}
+            onOpenSheetModal={() => setIsSheetModalOpen(true)}
+            currentUser={currentUser}
+          />
+        )
+      ) : (
+        <>
+          {/* Selected Date Summary Banner */}
+          {!(showOnlyTimetable || showOnlyReport) && !isHead && (
+            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '0.75rem', padding: '0.85rem 1.25rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <ShieldCheck size={20} color="#16a34a" />
+                <div>
+                  <div style={{ fontSize: '0.875rem', fontWeight: '800', color: '#15803d' }}>
+                    Personal Dashboard Mode Active — Scoped to {currentUser?.name}
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: '#166534' }}>
+                    Viewing reports and daily timetable roster exclusively for <strong>{currentUser?.name}</strong>. Full institutional employee reports are restricted to Head of Admissions.
+                  </div>
+                </div>
+              </div>
+              <span style={{ fontSize: '0.75rem', fontWeight: '800', background: '#dcfce7', color: '#15803d', padding: '0.25rem 0.65rem', borderRadius: '9999px' }}>
+                MY DASHBOARD & MY REPORTS
+              </span>
+            </div>
+          )}
+
+          {!(showOnlyTimetable || showOnlyReport) && (
+          <div className="date-summary-banner">
+            <div className="banner-left">
+              <div className="banner-icon-bg">
+                <Layers size={20} color="#4f46e5" />
+              </div>
+              <div>
+                <div className="banner-date-text">{getFormattedDateLabel(selectedDate)}</div>
+                <div className="banner-sub-text">
+                  {isHead
+                    ? 'Displaying total demos fixed, course metrics, and counselor schedules across all staff for this day.'
+                    : `Displaying personal demos fixed, course metrics, and counselor schedules for ${currentUser?.name} on this day.`}
+                </div>
+              </div>
+            </div>
+            <div className="banner-metrics">
+              <div className="stat-inline">
+                <span className="stat-number">{totalDemosFixedToday}</span>
+                <span className="stat-label">{isHead ? 'Total Demos Fixed' : 'My Fixed Demos'}</span>
+              </div>
+              <div className="stat-inline">
+                <span className="stat-number">{displayEmployees.length}</span>
+                <span className="stat-label">{isHead ? 'Active Advisors' : 'Assigned Advisor'}</span>
+              </div>
             </div>
           </div>
-        </div>
-        <div className="banner-metrics">
-          <div className="stat-inline">
-            <span className="stat-number">{totalDemosFixedToday}</span>
-            <span className="stat-label">{isHead ? 'Total Demos Fixed' : 'My Fixed Demos'}</span>
-          </div>
-          <div className="stat-inline">
-            <span className="stat-number">{displayEmployees.length}</span>
-            <span className="stat-label">{isHead ? 'Active Advisors' : 'Assigned Advisor'}</span>
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* ------------------------------------------------------------- */}
       {/* SECTION 1: FUNNEL OVERVIEW CARDS / SEMI-CIRCULAR METER GAUGES */}
       {/* ------------------------------------------------------------- */}
-      <div className="section-block">
+      {!(showOnlyTimetable || showOnlyReport) && (
+      <div id="demo-fixed-today" className="section-block">
         <div className="section-header-inline">
           <div>
             <h2 className="section-title">1. Course Funnel Gauges & Overview</h2>
@@ -792,11 +1319,14 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
           })}
         </div>
       </div>
+      )}
 
       {/* ------------------------------------------------------------- */}
       {/* SECTION 2: DAILY REPORT SUMMARY & FUNNEL DIAGRAM              */}
       {/* ------------------------------------------------------------- */}
-      <div className="section-block">
+      {/* ------------------------------------------------------------- */}
+      {!showOnlyTimetable && filterMode !== 'timetable' && (
+      <div id="todays-funnel-report" className="section-block">
         <div className="section-header-inline">
           <div>
             <h2 className="section-title">2. Today's Funnel Report Summary</h2>
@@ -806,21 +1336,25 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
                 : `Personal demo performance summary report for ${currentUser?.name} on ${getFormattedDateLabel(selectedDate)}.`}
             </p>
           </div>
+          <div className="total-pill" style={{ background: '#4f46e5', color: '#ffffff', padding: '0.6rem 1.2rem', borderRadius: '2rem', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: '0 4px 10px rgba(79, 70, 229, 0.3)' }}>
+            <span style={{ fontWeight: '600' }}>{isHead ? 'Total Demos Fixed:' : 'My Fixed Demos:'}</span>
+            <strong style={{ fontSize: '1.15rem' }}>{totalDemosFixedToday}</strong>
+          </div>
         </div>
 
         <div className="report-summary-layout">
           {/* Visual Funnel Stage Graphic */}
-          <div className="funnel-visual-card">
+          <div id="demo-booking-funnel" className="funnel-visual-card" style={{ justifyContent: 'flex-start' }}>
             <div className="card-title-mini">
               <Sparkles size={16} color="#6366f1" />
               <span>Conversion Funnel Progression</span>
             </div>
 
-            <div className="visual-funnel-stack">
+            <div className="visual-funnel-stack" style={{ marginTop: '2rem', marginBottom: '2rem' }}>
               <div className="funnel-stage stage-1">
                 <div className="stage-info">
                   <span className="stage-name">1. Total Inquiries Received</span>
-                  <span className="stage-val">{totalDemosFixedToday ? Math.round(totalDemosFixedToday * 2.8) : 0} Leads</span>
+                  <span className="stage-val">{totalBookedToday ? Math.round(totalBookedToday * 2.8) : 0} Leads</span>
                 </div>
                 <div className="stage-bar-fill" style={{ width: '100%' }}></div>
               </div>
@@ -828,7 +1362,7 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
               <div className="funnel-stage stage-2">
                 <div className="stage-info">
                   <span className="stage-name">2. Demos Scheduled</span>
-                  <span className="stage-val">{totalDemosFixedToday ? Math.round(totalDemosFixedToday * 1.5) : 0} Prospects</span>
+                  <span className="stage-val">{totalBookedToday ? Math.round(totalBookedToday * 1.5) : 0} Prospects</span>
                 </div>
                 <div className="stage-bar-fill" style={{ width: '75%' }}></div>
               </div>
@@ -850,14 +1384,14 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
               </div>
             </div>
 
-            <div className="funnel-stage-footer">
+            <div className="funnel-stage-footer" style={{ marginTop: 'auto' }}>
               <TrendingUp size={14} color="#059669" />
               <span>Conversion rate: <strong>{totalDemosFixedToday ? '45%' : '0%'} estimated enrollment</strong></span>
             </div>
           </div>
 
           {/* Employee Daily Performance Report Table */}
-          <div className="summary-table-card">
+          <div id="demo-conducted" className="summary-table-card">
             <div style={{ marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3 style={{ fontSize: '1.05rem', fontWeight: '800', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <Users size={18} color="#4f46e5" />
@@ -875,6 +1409,7 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
                 <tr>
                   <th>Employees Name</th>
                   <th>Role</th>
+                  <th style={{ textAlign: 'center' }}>How many demos</th>
                   <th style={{ textAlign: 'center' }}>Demo Fixed for a Day</th>
                   <th style={{ textAlign: 'center' }}>Demo Conducted</th>
                   <th style={{ textAlign: 'center' }}>Demo Cancelled</th>
@@ -897,6 +1432,11 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
                       <span className="emp-role" style={{ fontSize: '0.8rem', color: '#475569', fontWeight: '600' }}>
                         {emp.role}
                       </span>
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      <strong className="demos-count-bold" style={{ color: '#4f46e5', fontSize: '0.95rem' }}>
+                        {emp.totalAssigned} Demos
+                      </strong>
                     </td>
                     <td style={{ textAlign: 'center' }}>
                       <strong className="demos-count-bold" style={{ color: '#1d4ed8', fontSize: '0.95rem' }}>
@@ -924,6 +1464,11 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
                     </strong>
                   </td>
                   <td style={{ textAlign: 'center' }}>
+                    <strong className="demos-count-total" style={{ color: '#4f46e5', fontSize: '1rem' }}>
+                      {totalEmpStats.totalAssigned} Demos
+                    </strong>
+                  </td>
+                  <td style={{ textAlign: 'center' }}>
                     <strong className="demos-count-total" style={{ color: '#1d4ed8', fontSize: '1rem' }}>
                       {totalEmpStats.fixedForDay} Demos
                     </strong>
@@ -944,11 +1489,14 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
           </div>
         </div>
       </div>
+      )}
 
       {/* ------------------------------------------------------------- */}
       {/* SECTION 3: DAILY TIMETABLE / TIMESLOT TABLE MATRIX            */}
       {/* ------------------------------------------------------------- */}
-      <div className="section-block">
+      {/* ------------------------------------------------------------- */}
+      {!['bookedDate', 'report', 'conducted'].includes(filterMode) && (
+      <div id="time-slots" className="section-block">
         <div className="section-header-inline">
           <div>
             <h2 className="section-title">3. Daily Timetable / Timeslot Table</h2>
@@ -1097,6 +1645,9 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
           </table>
         </div>
       </div>
+      )}
+        </>
+      )}
 
       {/* ------------------------------------------------------------- */}
       {/* MODAL 1: VIEW DEMO DETAILS                                    */}
@@ -1115,38 +1666,92 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
             </div>
 
             <div className="modal-body">
+              {selectedDemoDetail.rowNumber && (
+                <div className="detail-row">
+                  <span className="d-label">Sheet Row #:</span>
+                  <span className="d-value bold" style={{ color: '#4f46e5' }}>
+                    Row #{selectedDemoDetail.rowNumber}
+                  </span>
+                </div>
+              )}
+              {selectedDemoDetail.timestamp && (
+                <div className="detail-row">
+                  <span className="d-label">Timestamp:</span>
+                  <span className="d-value">{selectedDemoDetail.timestamp}</span>
+                </div>
+              )}
               <div className="detail-row">
                 <span className="d-label">Candidate Name:</span>
-                <span className="d-value bold">{selectedDemoDetail.prospectName}</span>
+                <span className="d-value bold">{selectedDemoDetail.prospectName || selectedDemoDetail.studentName}</span>
               </div>
+              {(selectedDemoDetail.prospectEmail || selectedDemoDetail.studentEmail) && (
+                <div className="detail-row">
+                  <span className="d-label">Email Address:</span>
+                  <span className="d-value">
+                    <a
+                      href={`mailto:${selectedDemoDetail.prospectEmail || selectedDemoDetail.studentEmail}`}
+                      style={{ color: '#2563eb', textDecoration: 'none', fontWeight: '600' }}
+                    >
+                      {selectedDemoDetail.prospectEmail || selectedDemoDetail.studentEmail}
+                    </a>
+                  </span>
+                </div>
+              )}
               <div className="detail-row">
                 <span className="d-label">Phone Number:</span>
                 <span className="d-value">
-                  <Phone size={14} style={{ display: 'inline', marginRight: '4px' }} />
-                  {selectedDemoDetail.prospectPhone}
+                  <a
+                    href={`tel:${selectedDemoDetail.prospectPhone || selectedDemoDetail.studentPhone}`}
+                    style={{
+                      color: '#059669',
+                      textDecoration: 'none',
+                      fontWeight: '700',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    <Phone size={14} />
+                    <span>{selectedDemoDetail.prospectPhone || selectedDemoDetail.studentPhone}</span>
+                  </a>
                 </span>
               </div>
               <div className="detail-row">
                 <span className="d-label">Assigned Advisor:</span>
-                <span className="d-value">{selectedDemoDetail.employeeName}</span>
+                <span className="d-value">
+                  <strong>{selectedDemoDetail.employeeName || selectedDemoDetail.acName}</strong>
+                  {(selectedDemoDetail.employeeEmail || selectedDemoDetail.acEmail) && (
+                    <span style={{ fontSize: '0.75rem', color: '#64748b', marginLeft: '6px' }}>
+                      ({selectedDemoDetail.employeeEmail || selectedDemoDetail.acEmail})
+                    </span>
+                  )}
+                </span>
               </div>
               <div className="detail-row">
                 <span className="d-label">Demo Course:</span>
                 <span
                   className="code-pill"
                   style={{
-                    backgroundColor: DEMO_COURSES[selectedDemoDetail.courseKey]?.bgColor,
-                    color: DEMO_COURSES[selectedDemoDetail.courseKey]?.darkColor,
-                    borderColor: DEMO_COURSES[selectedDemoDetail.courseKey]?.borderColor
+                    backgroundColor: DEMO_COURSES[selectedDemoDetail.courseKey]?.bgColor || '#f1f5f9',
+                    color: DEMO_COURSES[selectedDemoDetail.courseKey]?.darkColor || '#334155',
+                    borderColor: DEMO_COURSES[selectedDemoDetail.courseKey]?.borderColor || '#cbd5e1'
                   }}
                 >
-                  {DEMO_COURSES[selectedDemoDetail.courseKey]?.fullName}
+                  {selectedDemoDetail.courseName || DEMO_COURSES[selectedDemoDetail.courseKey]?.fullName || selectedDemoDetail.courseKey}
                 </span>
               </div>
+              {selectedDemoDetail.pricePitched && (
+                <div className="detail-row">
+                  <span className="d-label">Price Pitched:</span>
+                  <span className="d-value bold" style={{ color: '#047857' }}>
+                    {selectedDemoDetail.pricePitched.startsWith('₹') ? selectedDemoDetail.pricePitched : `₹${selectedDemoDetail.pricePitched}`}
+                  </span>
+                </div>
+              )}
               <div className="detail-row">
-                <span className="d-label">Date & Time Slot:</span>
+                <span className="d-label">Date & Time:</span>
                 <span className="d-value">
-                  {selectedDemoDetail.date} ({selectedDemoDetail.timeSlot})
+                  {selectedDemoDetail.rawDate || selectedDemoDetail.date} ({selectedDemoDetail.rawTime || selectedDemoDetail.timeSlot})
                 </span>
               </div>
               <div className="detail-row">
@@ -1154,12 +1759,12 @@ export default function DemoAnalyticsDashboard({ currentUser }) {
                 <span className="status-chip high">{selectedDemoDetail.status}</span>
               </div>
 
-              {selectedDemoDetail.notes && (
+              {(selectedDemoDetail.notes || selectedDemoDetail.comments) && (
                 <div className="notes-box">
                   <div className="notes-heading">
-                    <FileText size={14} /> Counselor Notes:
+                    <FileText size={14} /> Comments / Qualifications:
                   </div>
-                  <p>{selectedDemoDetail.notes}</p>
+                  <p>{selectedDemoDetail.notes || selectedDemoDetail.comments}</p>
                 </div>
               )}
             </div>
