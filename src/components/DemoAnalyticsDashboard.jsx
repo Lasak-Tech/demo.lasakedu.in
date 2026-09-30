@@ -126,24 +126,58 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
     ];
   }, [isHead, currentUser, scheduledDemos]);
 
-  // Utility to normalize ISO string to YYYY-MM-DD (Strictly literal, no timezone shift)
-  const normalizeDateStr = (dateStr) => {
-    if (!dateStr) return '';
-    const str = String(dateStr).trim();
-    if (str.includes('T')) {
-      return str.split('T')[0];
+  // Utility to normalize any date/timestamp string to YYYY-MM-DD
+  const normalizeDateStr = (rawDate) => {
+    if (!rawDate) return '';
+    const str = String(rawDate).trim();
+    if (!str) return '';
+
+    const datePart = str.split('T')[0].split(' ')[0];
+    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(datePart)) {
+      const [y, m, d] = datePart.split('-');
+      return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
     }
-    return str;
+
+    if (datePart.includes('/')) {
+      const parts = datePart.split('/');
+      if (parts.length === 3) {
+        if (parts[0].length === 4) return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+        const yr = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
+        const p0 = parseInt(parts[0], 10);
+        const p1 = parseInt(parts[1], 10);
+        if (p1 > 12) return `${yr}-${String(p0).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+        return `${yr}-${String(p1).padStart(2, '0')}-${String(p0).padStart(2, '0')}`;
+      }
+    }
+
+    if (datePart.includes('-')) {
+      const parts = datePart.split('-');
+      if (parts.length === 3) {
+        if (parts[0].length === 4) return datePart;
+        const yr = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
+        const p0 = parseInt(parts[0], 10);
+        const p1 = parseInt(parts[1], 10);
+        if (p1 > 12) return `${yr}-${String(p0).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+        return `${yr}-${String(p1).padStart(2, '0')}-${String(p0).padStart(2, '0')}`;
+      }
+    }
+
+    return datePart;
   };
 
-  // Filtering Demos for Selected Date & User Scope
+  // Filtering Demos for Selected Date & User Scope across the 5 Sub-Topics
   const dateDemos = useMemo(() => {
     const rawDateDemos = selectedDate === 'ALL'
       ? scheduledDemos
       : scheduledDemos.filter((d) => {
-          if (filterMode === 'bookedDate' || filterMode === 'conducted') {
-            const bDate = d.bookedDate ? normalizeDateStr(d.bookedDate) : normalizeDateStr(d.date);
+          if (filterMode === 'bookedDate') {
+            const bDate = d.bookedDate ? normalizeDateStr(d.bookedDate) : (d.timestamp ? normalizeDateStr(d.timestamp) : normalizeDateStr(d.date));
             return bDate === selectedDate;
+          }
+          if (filterMode === 'conducted') {
+            const dDate = normalizeDateStr(d.date);
+            const bDate = d.bookedDate ? normalizeDateStr(d.bookedDate) : normalizeDateStr(d.date);
+            return (dDate === selectedDate || bDate === selectedDate);
           }
           return normalizeDateStr(d.date) === selectedDate;
         });
@@ -152,7 +186,7 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
     if (filterMode === 'conducted') {
       filtered = rawDateDemos.filter(d => d.status === 'Conducted');
     } else if (filterMode === 'demoDate') {
-      filtered = rawDateDemos.filter(d => d.status === 'Fixed');
+      filtered = rawDateDemos.filter(d => d.status !== 'Cancelled');
     }
 
     if (isHead) {
@@ -217,7 +251,7 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
     if (selectedDate === 'ALL') return targetList.length;
 
     targetList.forEach(d => {
-      const bDate = d.bookedDate ? normalizeDateStr(d.bookedDate) : normalizeDateStr(d.date);
+      const bDate = d.bookedDate ? normalizeDateStr(d.bookedDate) : (d.timestamp ? normalizeDateStr(d.timestamp) : normalizeDateStr(d.date));
       if (bDate === selectedDate) {
         count++;
       }
@@ -232,14 +266,14 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
         let matchesDate = false;
         if (filterMode === 'bookedDate') {
           const bDate = d.bookedDate ? normalizeDateStr(d.bookedDate) : normalizeDateStr(d.date);
-          matchesDate = (bDate === selectedDate);
+          matchesDate = (selectedDate === 'ALL' || bDate === selectedDate);
         } else {
-          matchesDate = (normalizeDateStr(d.date) === selectedDate);
+          matchesDate = (selectedDate === 'ALL' || normalizeDateStr(d.date) === selectedDate);
         }
         const matchesEmp = d.employeeId === emp.id || d.employeeName?.toLowerCase() === emp.name.toLowerCase();
         return matchesDate && matchesEmp;
       });
-      const fixedForDay = empDemos.length;
+      const fixedForDay = empDemos.filter((d) => d.status !== 'Cancelled').length;
       const conducted = empDemos.filter((d) => d.status === 'Conducted').length;
       const cancelled = empDemos.filter((d) => d.status === 'Cancelled').length;
 
@@ -598,22 +632,32 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
           const studentName = getFlexibleVal(row, 'Student Name', 'Prospect Name', 'Student / Employee Name', 'Name', 'Candidate', 'Full Name', 'Contact Person', 'StudentName', 'Prospect', 'Student', 'Employee Name');
           const studentEmail = getFlexibleVal(row, 'Student Mail ID', 'Student Email', 'Email', 'Mail', 'Email ID', 'StudentMail');
           const phone = getFlexibleVal(row, 'Student Mobile Number', 'Student Phone', 'Phone', 'Mobile', 'Contact', 'Phone Number');
-          const rawDate = getFlexibleVal(row, 'Demo Date', 'Date', 'Timestamp', 'Created At', 'Date of Demo');
+          const rawDemoDate = getFlexibleVal(row, 'Demo Date', 'Date of Demo', 'Scheduled Date', 'Date');
+          const rawTimestamp = getFlexibleVal(row, 'Timestamp', 'Created At', 'Booking Date', 'Created Date');
 
-          if (!studentName && !studentEmail && !phone && !rawDate) return;
+          if (!studentName && !studentEmail && !phone && !rawDemoDate && !rawTimestamp) return;
 
-          const normDate = normalizeDate(rawDate);
+          const normDate = rawDemoDate ? normalizeDateStr(rawDemoDate) : (rawTimestamp ? normalizeDateStr(rawTimestamp) : getTodayDateStr());
+          const normBookedDate = rawTimestamp ? normalizeDateStr(rawTimestamp) : normDate;
           const normTime = normalizeTime(getFlexibleVal(row, 'Demo Time', 'Time Slot', 'Time', 'Slot', 'Timestamp'), index);
           const emp = resolveEmployee(row, index);
           const courseKey = resolveCourseKey(row, index);
 
           dateCounts[normDate] = (dateCounts[normDate] || 0) + 1;
+          if (normBookedDate) {
+            dateCounts[normBookedDate] = (dateCounts[normBookedDate] || 0) + 1;
+          }
 
           const feeStr = getFlexibleVal(row, 'Course Fees', 'Price Pitched', 'Down Payment /Part Payment Value', 'Fees', 'Price') || '10,000';
           const notes = getFlexibleVal(row, 'Lead Source', 'Comments', 'Notes', 'Remarks', 'Source') || `Synced from Google Sheet (${tabKey})`;
 
-          const rawTimestamp = getFlexibleVal(row, 'Timestamp', 'Created At', 'Booking Date', 'Created Date');
-          const normBookedDate = rawTimestamp ? normalizeDate(rawTimestamp) : normDate;
+          const rawStatus = getFlexibleVal(row, 'Status', 'Demo Status', 'Attendance', 'Conduction Status');
+          let status = 'Fixed';
+          if (tabKey.includes('Conduction') || tabKey.includes('Revenue') || /conducted|done|completed|attended/i.test(rawStatus)) {
+            status = 'Conducted';
+          } else if (/cancel|absent/i.test(rawStatus)) {
+            status = 'Cancelled';
+          }
 
           allImportedDemos.push({
             id: `sch-gsheet-${tabKey.replace(/\s+/g, '')}-${index}`,
@@ -625,7 +669,7 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
             courseKey: courseKey,
             prospectName: studentName || studentEmail || `Student Record #${index + 1}`,
             prospectPhone: phone || '+91 98000 00000',
-            status: tabKey.includes('Conduction') || tabKey.includes('Revenue') ? 'Conducted' : 'Fixed',
+            status: status,
             notes: notes.startsWith('Lead:') ? notes : `Lead: ${notes} | Fees: ₹${feeStr}`
           });
         });

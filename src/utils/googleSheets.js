@@ -83,23 +83,45 @@ export const normalizeExcelDemoRow = (row, index) => {
     return '';
   };
 
-  const todayStr = new Date().toISOString().split('T')[0];
-  const rawDate = findVal('demodate', 'date', 'timestamp', 'createdat') || todayStr;
-  let formattedDate = todayStr;
-  if (rawDate.includes('T')) {
-    formattedDate = rawDate.split('T')[0];
-  } else if (rawDate.includes('-')) {
-    formattedDate = rawDate.split(' ')[0];
-  } else if (rawDate.includes('/')) {
-    const parts = rawDate.split('/');
-    if (parts.length === 3) {
-      if (parts[2].length === 4) {
-        formattedDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-      } else if (parts[0].length === 4) {
-        formattedDate = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+  const parseToIso = (rawDate) => {
+    if (!rawDate) return '';
+    const str = String(rawDate).trim();
+    const datePart = str.split('T')[0].split(' ')[0];
+    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(datePart)) {
+      const [y, m, d] = datePart.split('-');
+      return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+    if (datePart.includes('/')) {
+      const parts = datePart.split('/');
+      if (parts.length === 3) {
+        if (parts[0].length === 4) return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+        const yr = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
+        const p0 = parseInt(parts[0], 10);
+        const p1 = parseInt(parts[1], 10);
+        if (p1 > 12) return `${yr}-${String(p0).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+        return `${yr}-${String(p1).padStart(2, '0')}-${String(p0).padStart(2, '0')}`;
       }
     }
-  }
+    if (datePart.includes('-')) {
+      const parts = datePart.split('-');
+      if (parts.length === 3) {
+        if (parts[0].length === 4) return datePart;
+        const yr = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
+        const p0 = parseInt(parts[0], 10);
+        const p1 = parseInt(parts[1], 10);
+        if (p1 > 12) return `${yr}-${String(p0).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+        return `${yr}-${String(p1).padStart(2, '0')}-${String(p0).padStart(2, '0')}`;
+      }
+    }
+    return datePart;
+  };
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const rawDemoDate = findVal('demodate', 'date', 'scheduleddate', 'dateofdemo');
+  const rawTimestamp = findVal('timestamp', 'createdat', 'bookingdate', 'createddate');
+
+  const formattedDate = parseToIso(rawDemoDate) || parseToIso(rawTimestamp) || todayStr;
+  const bookedDate = parseToIso(rawTimestamp) || formattedDate;
 
   const courseRaw = findVal('coursename', 'course', 'coursekey') || 'MECH';
   let courseKey = 'MECH';
@@ -108,17 +130,18 @@ export const normalizeExcelDemoRow = (row, index) => {
   else if (courseRaw.toUpperCase().includes('DM') || courseRaw.toUpperCase().includes('MARKETING')) courseKey = 'DM';
   else if (courseRaw.toUpperCase().includes('MECH')) courseKey = 'MECH';
 
-  const statusRaw = findVal('status') || 'Fixed';
+  const statusRaw = findVal('status', 'demostatus', 'conductionstatus') || 'Fixed';
   let status = 'Fixed';
-  if (statusRaw.toLowerCase().includes('conducted') || statusRaw.toLowerCase().includes('done') || statusRaw.toLowerCase().includes('completed')) {
+  if (statusRaw.toLowerCase().includes('conducted') || statusRaw.toLowerCase().includes('done') || statusRaw.toLowerCase().includes('completed') || statusRaw.toLowerCase().includes('attended')) {
     status = 'Conducted';
-  } else if (statusRaw.toLowerCase().includes('cancel')) {
+  } else if (statusRaw.toLowerCase().includes('cancel') || statusRaw.toLowerCase().includes('absent')) {
     status = 'Cancelled';
   }
 
   return {
     id: `excel-sch-${Date.now()}-${index}`,
     date: formattedDate,
+    bookedDate: bookedDate,
     timeSlot: findVal('timeslot', 'demotime', 'time') || '11:00 AM - 12:00 PM',
     employeeId: findVal('employeeid', 'acname', 'employeename', 'advisor') || 'usr-4',
     employeeName: findVal('employeename', 'acname', 'advisor', 'name') || 'Career Advisor',

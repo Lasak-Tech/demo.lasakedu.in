@@ -548,23 +548,36 @@ export const ALL_MASTER_DEMO_RECORDS = [
 ];
 
 // Normalized format compatible with existing timetable and analytics views
-export const ALL_NORMALIZED_SCHEDULED_DEMOS = ALL_MASTER_DEMO_RECORDS.map((rec) => ({
-  id: `sch-master-${rec.rowNumber}`,
-  rowNumber: rec.rowNumber,
-  date: rec.demoDate,
-  rawDate: rec.rawDemoDate,
-  timeSlot: rec.timeSlot,
-  rawTime: rec.demoTime,
-  employeeId: rec.employeeId,
-  employeeName: rec.acName,
-  employeeEmail: rec.acEmail,
-  courseKey: rec.courseKey,
-  courseName: rec.courseName,
-  prospectName: rec.studentName,
-  prospectEmail: rec.studentEmail,
-  prospectPhone: rec.studentPhone,
-  pricePitched: rec.pricePitched,
-  status: rec.status,
-  timestamp: rec.timestamp,
-  notes: `${rec.comments} | Fees: ₹${rec.pricePitched} | AC: ${rec.acName}`
-}));
+export const ALL_NORMALIZED_SCHEDULED_DEMOS = ALL_MASTER_DEMO_RECORDS.map((rec) => {
+  const normDate = rec.demoDate || '2026-09-25';
+  let normBooked = normDate;
+  if (rec.timestamp) {
+    const tsPart = rec.timestamp.split(' ')[0];
+    if (tsPart.includes('/')) {
+      const [d, m, y] = tsPart.split('/');
+      normBooked = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+  }
+  return {
+    id: `sch-master-${rec.rowNumber}`,
+    rowNumber: rec.rowNumber,
+    date: normDate,
+    bookedDate: normBooked,
+    rawDate: rec.rawDemoDate,
+    timeSlot: rec.timeSlot,
+    rawTime: rec.demoTime,
+    employeeId: rec.employeeId,
+    employeeName: rec.acName,
+    employeeEmail: rec.acEmail,
+    courseKey: rec.courseKey,
+    courseName: rec.courseName,
+    prospectName: rec.studentName,
+    prospectEmail: rec.studentEmail,
+    prospectPhone: rec.studentPhone,
+    pricePitched: rec.pricePitched,
+    status: rec.status,
+    timestamp: rec.timestamp,
+    notes: `${rec.comments} | Fees: ₹${rec.pricePitched} | AC: ${rec.acName}`
+  };
+});
+
