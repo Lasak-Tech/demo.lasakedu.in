@@ -2,7 +2,7 @@ export const MOCK_USERS = [
   {
     id: 'usr-1',
     email: 'vikram@lasakedu.in',
-    password: 'head123',
+    password: 'vikram123',
     name: 'Dr. Vikram',
     role: 'Head of Admissions',
     roleCode: 'HEAD_ADMISSIONS',
@@ -16,7 +16,7 @@ export const MOCK_USERS = [
   {
     id: 'usr-2',
     email: 'sanjana@lasak.in',
-    password: 'advisor123',
+    password: 'sanjana123',
     name: 'Sanjana',
     role: 'Senior Career Advisor',
     roleCode: 'SR_CAREER_ADVISOR',
@@ -30,7 +30,7 @@ export const MOCK_USERS = [
   {
     id: 'usr-3',
     email: 'laskhmanan@lasak.in',
-    password: 'advisor123',
+    password: 'lakshmanan123',
     name: 'Lakshmanan',
     role: 'Senior Career Advisor',
     roleCode: 'SR_CAREER_ADVISOR',
@@ -44,7 +44,7 @@ export const MOCK_USERS = [
   {
     id: 'usr-4',
     email: 'gukankalimuthu@gmail.com',
-    password: 'advisor123',
+    password: 'gukan123',
     name: 'Gukan',
     role: 'Career Advisor',
     roleCode: 'CAREER_ADVISOR',
@@ -58,7 +58,7 @@ export const MOCK_USERS = [
   {
     id: 'usr-5',
     email: 'sivaselvan121206@gmail.com',
-    password: 'advisor123',
+    password: 'siva123',
     name: 'Siva',
     role: 'Career Advisor',
     roleCode: 'CAREER_ADVISOR',
@@ -72,7 +72,7 @@ export const MOCK_USERS = [
   {
     id: 'usr-6',
     email: 'sreyarajendran96@gmail.com',
-    password: 'advisor123',
+    password: 'sreya123',
     name: 'Sreya',
     role: 'Career Advisor',
     roleCode: 'CAREER_ADVISOR',
@@ -86,7 +86,7 @@ export const MOCK_USERS = [
   {
     id: 'usr-7',
     email: 'aswathysivan222@gmail.com',
-    password: 'advisor123',
+    password: 'aswathy123',
     name: 'Aswathy',
     role: 'Career Advisor',
     roleCode: 'CAREER_ADVISOR',
@@ -100,7 +100,7 @@ export const MOCK_USERS = [
   {
     id: 'usr-8',
     email: 'parkavi23.annadurai@gmail.com',
-    password: 'advisor123',
+    password: 'parkavi123',
     name: 'Parkavi',
     role: 'Career Advisor',
     roleCode: 'CAREER_ADVISOR',
@@ -114,7 +114,7 @@ export const MOCK_USERS = [
   {
     id: 'usr-9',
     email: 'Hariharan26112006@gmail.com',
-    password: 'advisor123',
+    password: 'hariharan123',
     name: 'Hari Haran',
     role: 'Career Advisor',
     roleCode: 'CAREER_ADVISOR',
@@ -128,7 +128,7 @@ export const MOCK_USERS = [
   {
     id: 'usr-10',
     email: 'dinshiya21@gmail.com',
-    password: 'advisor123',
+    password: 'dinshiya123',
     name: 'Dinshiya',
     role: 'Career Advisor',
     roleCode: 'CAREER_ADVISOR',
