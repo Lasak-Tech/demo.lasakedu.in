@@ -30,15 +30,10 @@ export default function Login({ onLoginSuccess }) {
     if (matchedUser) {
       onLoginSuccess(matchedUser);
     } else {
-      setErrorMessage('Invalid credentials. Please select one of the demo credentials below.');
+      setErrorMessage('Invalid email or password. Please try again.');
     }
   };
 
-  const handleQuickFill = (user) => {
-    setEmail(user.email);
-    setPassword(user.password);
-    setErrorMessage('');
-  };
 
   return (
     <div className="login-wrapper">
@@ -60,23 +55,6 @@ export default function Login({ onLoginSuccess }) {
               <p>
                 Integrated portal for admissions officers, department heads, and career advisors to manage applications, enrollments, and placement drives.
               </p>
-            </div>
-          </div>
-
-          <div className="demo-credentials-container">
-            <div className="demo-credentials-title">👇 Quick Demo Credentials (Click to Auto-fill)</div>
-            <div className="demo-roles-grid">
-              {MOCK_USERS.map((user) => (
-                <div
-                  key={user.id}
-                  className="demo-role-card"
-                  onClick={() => handleQuickFill(user)}
-                  title={`Click to fill ${user.role} credentials`}
-                >
-                  <span className="demo-role-name">{user.role}</span>
-                  <span className="demo-role-email">{user.email}</span>
-                </div>
-              ))}
             </div>
           </div>
         </div>
