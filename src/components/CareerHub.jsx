@@ -620,14 +620,7 @@ export default function CareerHub({
                       boxShadow: isGoogle ? '0 2px 6px rgba(66, 133, 244, 0.35)' : '0 2px 6px rgba(79, 70, 229, 0.3)',
                       transition: 'all 0.2s ease'
                     }}
-                    onClick={() => {
-                      const searchTerm = drive.role || drive.courseName || drive.company || 'Software Engineer';
-                      const query = encodeURIComponent(`${searchTerm} jobs India 2024 2025`);
-                      window.open(
-                        `https://www.google.com/search?q=${query}&udm=8`,
-                        '_blank'
-                      );
-                    }}
+                    onClick={() => setSelectedDriveForApply(drive)}
                   >
                     <Send size={14} />
                     <span>Apply Now</span>
@@ -998,17 +991,14 @@ export default function CareerHub({
         />
       )}
 
-      {/* Apply Now Modal — Job Vacancy Details + Application Form */}
+      {/* Course Job Vacancies & Company Details Modal */}
       {selectedDriveForApply && (
         <JobApplyModal
           drive={selectedDriveForApply}
+          allDrives={allJobDrives}
           courses={courses}
           currentUser={currentUser}
           onClose={() => setSelectedDriveForApply(null)}
-          onApplySuccess={(newStudentData) => {
-            handleApplySuccess(newStudentData, selectedDriveForApply.company);
-            setSelectedDriveForApply(null);
-          }}
         />
       )}
 
