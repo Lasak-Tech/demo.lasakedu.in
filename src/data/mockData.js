@@ -83,6 +83,7 @@ export const MOCK_USERS = [
     dept: 'IT',
     joinedDate: '2024-07-01'
   },
+  {
     id: 'usr-9',
     email: 'Hariharan26112006@gmail.com',
     password: 'hariharan123',
