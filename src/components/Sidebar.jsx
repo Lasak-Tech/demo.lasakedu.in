@@ -8,7 +8,8 @@ import {
   ChevronLeft,
   ChevronRight,
   ShieldCheck,
-  GraduationCap
+  GraduationCap,
+  ExternalLink
 } from 'lucide-react';
 
 export default function Sidebar({ user, activeTab, setActiveTab }) {
@@ -62,6 +63,23 @@ export default function Sidebar({ user, activeTab, setActiveTab }) {
             const Icon = item.icon;
             const subIds = item.subItems ? item.subItems.map(s => s.id) : [];
             const isActive = activeTab === item.id || subIds.includes(activeTab);
+            if (item.externalUrl) {
+              return (
+                <div key={item.id} className="sidebar-item-wrapper" style={{ display: 'flex', flexDirection: 'column' }}>
+                  <a
+                    href={item.externalUrl}
+                    className={`sidebar-item ${isActive ? 'active' : ''}`}
+                    title={isCollapsed ? item.label : ''}
+                    style={{ textDecoration: 'none', cursor: 'pointer' }}
+                  >
+                    <Icon size={20} className="sidebar-item-icon" />
+                    {!isCollapsed && <span className="sidebar-item-text">{item.label}</span>}
+                    {!isCollapsed && <ExternalLink size={14} style={{ marginLeft: 'auto', opacity: 0.7 }} />}
+                  </a>
+                </div>
+              );
+            }
+
             return (
               <div key={item.id} className="sidebar-item-wrapper" style={{ display: 'flex', flexDirection: 'column' }}>
                 <button
@@ -70,11 +88,7 @@ export default function Sidebar({ user, activeTab, setActiveTab }) {
                     if (item.subItems) {
                       setExpandedTab(expandedTab === item.id ? null : item.id);
                     }
-                    if (item.externalUrl) {
-                      window.location.href = item.externalUrl;
-                    } else {
-                      setActiveTab(item.id);
-                    }
+                    setActiveTab(item.id);
                   }}
                   title={isCollapsed ? item.label : ''}
                   style={item.subItems && !isCollapsed && expandedTab === item.id ? { marginBottom: '0.2rem' } : {}}
