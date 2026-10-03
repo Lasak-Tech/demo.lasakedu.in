@@ -252,7 +252,7 @@ export default function App() {
         );
 
       case 'course-management':
-        window.location.href = 'https://course-managemnet.vercel.app/';
+        window.location.href = 'https://course-management-mu-amber.vercel.app/';
         return null;
 
       case 'user-management': {

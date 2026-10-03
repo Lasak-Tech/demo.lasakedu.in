@@ -37,7 +37,7 @@ export default function Sidebar({ user, activeTab, setActiveTab }) {
         { id: 'todays-funnel-report', label: "Today's Funnel Report Summary" }
       ]
     },
-    { id: 'course-management', label: 'Course Management', icon: PlusSquare, externalUrl: 'https://course-managemnet.vercel.app/' },
+    { id: 'course-management', label: 'Course Management', icon: PlusSquare, externalUrl: 'https://course-management-mu-amber.vercel.app/' },
     ...(canViewUserMgmt ? [{ id: 'user-management', label: 'User Management', icon: UserCog }] : [])
   ];
 
