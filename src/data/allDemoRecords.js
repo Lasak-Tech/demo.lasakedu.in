@@ -447,9 +447,6 @@ const generateHistoricalRows = () => {
     { email: 'gukankalimuthu@gmail.com', name: 'Gukan', id: 'usr-4' },
     { email: 'hariharan26112006@gmail.com', name: 'Hari Haran', id: 'usr-9' },
     { email: 'sivaselvan121206@gmail.com', name: 'Siva', id: 'usr-5' },
-    { email: 'dinshiya21@gmail.com', name: 'Dinshiya', id: 'usr-10' },
-    { email: 'aswathysivan222@gmail.com', name: 'Aswathy', id: 'usr-7' },
-    { email: 'parkavi23.annadurai@gmail.com', name: 'Parkavi', id: 'usr-8' },
     { email: 'sreyarajendran96@gmail.com', name: 'Sreya', id: 'usr-6' }
   ];
 

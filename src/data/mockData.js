@@ -83,35 +83,6 @@ export const MOCK_USERS = [
     dept: 'IT',
     joinedDate: '2024-07-01'
   },
-  {
-    id: 'usr-7',
-    email: 'aswathysivan222@gmail.com',
-    password: 'aswathy123',
-    name: 'Aswathy',
-    role: 'Career Advisor',
-    roleCode: 'CAREER_ADVISOR',
-    avatar: 'AW',
-    title: 'Civil Career Advisor',
-    badgeColor: '#059669',
-    status: 'Active',
-    dept: 'CIVIL',
-    joinedDate: '2024-07-15'
-  },
-  {
-    id: 'usr-8',
-    email: 'parkavi23.annadurai@gmail.com',
-    password: 'parkavi123',
-    name: 'Parkavi',
-    role: 'Career Advisor',
-    roleCode: 'CAREER_ADVISOR',
-    avatar: 'PK',
-    title: 'Career Guidance Counsellor',
-    badgeColor: '#059669',
-    status: 'Active',
-    dept: 'IT',
-    joinedDate: '2024-08-01'
-  },
-  {
     id: 'usr-9',
     email: 'Hariharan26112006@gmail.com',
     password: 'hariharan123',
@@ -124,20 +95,6 @@ export const MOCK_USERS = [
     status: 'Active',
     dept: 'MECH',
     joinedDate: '2024-08-15'
-  },
-  {
-    id: 'usr-10',
-    email: 'dinshiya21@gmail.com',
-    password: 'dinshiya123',
-    name: 'Dinshiya',
-    role: 'Career Advisor',
-    roleCode: 'CAREER_ADVISOR',
-    avatar: 'DS',
-    title: 'Placement & Career Counsellor',
-    badgeColor: '#059669',
-    status: 'Active',
-    dept: 'CIVIL',
-    joinedDate: '2024-09-01'
   }
 ];
 
@@ -227,10 +184,7 @@ export const CAREER_ADVISORS_LIST = [
   { id: 'usr-4', name: 'Gukan', email: 'gukankalimuthu@gmail.com', activeCases: 8 },
   { id: 'usr-5', name: 'Siva', email: 'sivaselvan121206@gmail.com', activeCases: 6 },
   { id: 'usr-6', name: 'Sreya', email: 'sreyarajendran96@gmail.com', activeCases: 9 },
-  { id: 'usr-7', name: 'Aswathy', email: 'aswathysivan222@gmail.com', activeCases: 5 },
-  { id: 'usr-8', name: 'Parkavi', email: 'parkavi23.annadurai@gmail.com', activeCases: 7 },
-  { id: 'usr-9', name: 'Hari Haran', email: 'Hariharan26112006@gmail.com', activeCases: 6 },
-  { id: 'usr-10', name: 'Dinshiya', email: 'dinshiya21@gmail.com', activeCases: 4 }
+  { id: 'usr-9', name: 'Hari Haran', email: 'Hariharan26112006@gmail.com', activeCases: 6 }
 ];
 
 const today = new Date();
@@ -567,12 +521,12 @@ export const INITIAL_STUDENTS = [
     placedStatus: 'Placed',
     company: 'Larsen & Toubro Construction',
     packageAmt: '₹11.8 LPA',
-    assignedAdvisorId: 'usr-7',
-    assignedAdvisorName: 'Aswathy',
+    assignedAdvisorId: 'usr-9',
+    assignedAdvisorName: 'Hari Haran',
     counsellingStatus: 'Resolved',
     address: 'Lucknow, Uttar Pradesh',
     counsellingNotes: [
-      { id: 'n10', date: '2026-08-21', author: 'Aswathy', text: 'Cleared structural interview at L&T.', type: 'Milestone' }
+      { id: 'n10', date: '2026-08-21', author: 'Hari Haran', text: 'Cleared structural interview at L&T.', type: 'Milestone' }
     ]
   },
   {
@@ -630,8 +584,8 @@ export const INITIAL_STUDENTS = [
     placedStatus: 'Placed',
     company: 'Afcons Infrastructure',
     packageAmt: '₹10.2 LPA',
-    assignedAdvisorId: 'usr-7',
-    assignedAdvisorName: 'Aswathy',
+    assignedAdvisorId: 'usr-9',
+    assignedAdvisorName: 'Hari Haran',
     counsellingStatus: 'Resolved',
     address: 'Bhopal, Madhya Pradesh',
     counsellingNotes: []

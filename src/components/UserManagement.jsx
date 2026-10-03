@@ -27,7 +27,7 @@ const ROLE_BADGE = {
 
 const EMPTY_FORM = { name: '', email: '', password: '', roleCode: 'CAREER_ADVISOR', dept: 'IT', title: '' };
 
-export default function UserManagement({ staffUsers, onAddUser, onEditUser, onToggleStatus, onDeleteUser }) {
+export default function UserManagement({ staffUsers, onAddUser, onEditUser, onToggleStatus, onDeleteUser, currentUser }) {
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
@@ -35,7 +35,31 @@ export default function UserManagement({ staffUsers, onAddUser, onEditUser, onTo
   const [errors, setErrors] = useState({});
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
-  const filtered = staffUsers.filter(u =>
+  // Access level determination
+  const isHead = currentUser?.roleCode === 'HEAD_ADMISSIONS';
+  const isSanjana = currentUser?.roleCode === 'SR_CAREER_ADVISOR' && currentUser?.dept === 'ALL';
+  const isLakshmanan = currentUser?.roleCode === 'SR_CAREER_ADVISOR' && currentUser?.dept !== 'ALL';
+  const canEdit = isHead || isSanjana; // Vikram and Sanjana have user management capabilities
+
+  // Relieved staff members to permanently exclude
+  const RELIEVED_IDS = ['usr-7', 'usr-8', 'usr-10'];
+  const RELIEVED_EMAILS = ['aswathysivan222@gmail.com', 'parkavi23.annadurai@gmail.com', 'dinshiya21@gmail.com'];
+  const isRelievedUser = (u) =>
+    RELIEVED_IDS.includes(u.id) ||
+    RELIEVED_EMAILS.includes(u.email?.toLowerCase()) ||
+    ['aswathy', 'parkavi', 'dinshiya'].includes(u.name?.toLowerCase().trim());
+
+  const activeStaffUsers = staffUsers.filter(u => !isRelievedUser(u));
+
+  // Lakshmanan sees only Career Advisors (employees below him)
+  // Sanjana sees all staff members EXCEPT Vikram (HEAD_ADMISSIONS)
+  const visibleUsers = isLakshmanan
+    ? activeStaffUsers.filter(u => u.roleCode === 'CAREER_ADVISOR')
+    : isSanjana
+    ? activeStaffUsers.filter(u => u.roleCode !== 'HEAD_ADMISSIONS' && u.id !== 'usr-1' && !u.name?.toLowerCase().includes('vikram'))
+    : activeStaffUsers;
+
+  const filtered = visibleUsers.filter(u =>
     u.name.toLowerCase().includes(search.toLowerCase()) ||
     u.email.toLowerCase().includes(search.toLowerCase()) ||
     u.role.toLowerCase().includes(search.toLowerCase())
@@ -59,6 +83,7 @@ export default function UserManagement({ staffUsers, onAddUser, onEditUser, onTo
   };
 
   const openEdit = (user) => {
+    if (user.roleCode === 'HEAD_ADMISSIONS') return; // Protected: Dr. Vikram cannot be edited
     setEditingUser(user);
     setForm({ name: user.name, email: user.email, password: '', roleCode: user.roleCode, dept: user.dept || 'ALL', title: user.title || '' });
     setErrors({});
@@ -113,24 +138,38 @@ export default function UserManagement({ staffUsers, onAddUser, onEditUser, onTo
       <div className="dashboard-header">
         <div className="dashboard-title">
           <h1>User Management</h1>
-          <p>Create, edit, and manage staff accounts — Head of Admissions access only</p>
+          {isHead && <p>Create, edit, and manage all staff accounts — Full Admin Access</p>}
+          {isSanjana && (
+            <p style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <span style={{ background: '#dcfce7', color: '#15803d', fontWeight: '700', fontSize: '0.78rem', padding: '0.15rem 0.5rem', borderRadius: '9999px' }}>STAFF MANAGEMENT</span>
+              Manage team accounts, advisors, and updates
+            </p>
+          )}
+          {isLakshmanan && (
+            <p style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <span style={{ background: '#dbeafe', color: '#1d4ed8', fontWeight: '700', fontSize: '0.78rem', padding: '0.15rem 0.5rem', borderRadius: '9999px' }}>TEAM VIEW</span>
+              Viewing Career Advisors under your supervision — Access granted by Vikram
+            </p>
+          )}
         </div>
-        <button
-          className="btn-primary"
-          style={{ marginTop: 0, width: 'auto', padding: '0.65rem 1.25rem', fontSize: '0.875rem' }}
-          onClick={openCreate}
-        >
-          <UserPlus size={16} /> Add Staff Member
-        </button>
+        {canEdit && (
+          <button
+            className="btn-primary"
+            style={{ marginTop: 0, width: 'auto', padding: '0.65rem 1.25rem', fontSize: '0.875rem' }}
+            onClick={openCreate}
+          >
+            <UserPlus size={16} /> Add Staff Member
+          </button>
+        )}
       </div>
 
       {/* Stats Row */}
       <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: '1.75rem' }}>
         {[
-          { label: 'Total Staff', value: staffUsers.length, color: '#4f46e5', bg: '#e0e7ff' },
-          { label: 'Active', value: staffUsers.filter(u => u.status === 'Active').length, color: '#047857', bg: '#d1fae5' },
-          { label: 'Inactive', value: staffUsers.filter(u => u.status !== 'Active').length, color: '#be123c', bg: '#fee2e2' },
-          { label: 'Career Advisors', value: staffUsers.filter(u => u.roleCode === 'CAREER_ADVISOR').length, color: '#d97706', bg: '#fef3c7' }
+          { label: isLakshmanan ? 'Team Members' : 'Total Staff', value: visibleUsers.length, color: '#4f46e5', bg: '#e0e7ff' },
+          { label: 'Active', value: visibleUsers.filter(u => u.status === 'Active').length, color: '#047857', bg: '#d1fae5' },
+          { label: 'Inactive', value: visibleUsers.filter(u => u.status !== 'Active').length, color: '#be123c', bg: '#fee2e2' },
+          { label: 'Career Advisors', value: visibleUsers.filter(u => u.roleCode === 'CAREER_ADVISOR').length, color: '#d97706', bg: '#fef3c7' }
         ].map(({ label, value, color, bg }) => (
           <div key={label} className="kpi-card">
             <div><div className="kpi-info-label">{label}</div><div className="kpi-value">{value}</div></div>
@@ -165,7 +204,7 @@ export default function UserManagement({ staffUsers, onAddUser, onEditUser, onTo
             <tbody>
               {filtered.map(user => {
                 const rb = ROLE_BADGE[user.roleCode] || { bg: '#f1f5f9', text: '#475569' };
-                const isHead = user.roleCode === 'HEAD_ADMISSIONS';
+                const isHeadUser = user.roleCode === 'HEAD_ADMISSIONS';
                 return (
                   <tr key={user.id} style={{ opacity: user.status === 'Inactive' ? 0.6 : 1 }}>
                     <td>
@@ -192,7 +231,7 @@ export default function UserManagement({ staffUsers, onAddUser, onEditUser, onTo
                       </span>
                     </td>
                     <td>
-                      {!isHead && (
+                      {canEdit && !isHeadUser && (
                         <div style={{ display: 'flex', gap: '0.4rem' }}>
                           <button
                             style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', padding: '0.35rem 0.6rem', borderRadius: '0.375rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.78rem', fontWeight: '600' }}
@@ -218,7 +257,10 @@ export default function UserManagement({ staffUsers, onAddUser, onEditUser, onTo
                           </button>
                         </div>
                       )}
-                      {isHead && <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>Protected</span>}
+                      {canEdit && isHeadUser && <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>Protected</span>}
+                      {!canEdit && (
+                        <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic' }}>View Only</span>
+                      )}
                     </td>
                   </tr>
                 );
@@ -257,7 +299,10 @@ export default function UserManagement({ staffUsers, onAddUser, onEditUser, onTo
             </thead>
             <tbody>
               {(() => {
-                const logs = getAuditLogs();
+                const rawLogs = getAuditLogs();
+                const logs = isSanjana
+                  ? rawLogs.filter(l => l.userRoleCode !== 'HEAD_ADMISSIONS' && l.userId !== 'usr-1' && !l.userName?.toLowerCase().includes('vikram'))
+                  : rawLogs;
                 if (logs.length === 0) {
                   return (
                     <tr>

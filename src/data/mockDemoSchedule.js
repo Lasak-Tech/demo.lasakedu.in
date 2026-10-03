@@ -54,9 +54,6 @@ export const DEMO_EMPLOYEES = [
   { id: 'usr-4', name: 'Gukan', role: 'Career Advisor', avatar: 'GK', email: 'gukankalimuthu@gmail.com' },
   { id: 'usr-9', name: 'Hari Haran', role: 'Career Advisor', avatar: 'HH', email: 'hariharan26112006@gmail.com' },
   { id: 'usr-5', name: 'Siva', role: 'Career Advisor', avatar: 'SV', email: 'sivaselvan121206@gmail.com' },
-  { id: 'usr-10', name: 'Dinshiya', role: 'Career Advisor', avatar: 'DS', email: 'dinshiya21@gmail.com' },
-  { id: 'usr-7', name: 'Aswathy', role: 'Career Advisor', avatar: 'AW', email: 'aswathysivan222@gmail.com' },
-  { id: 'usr-8', name: 'Parkavi', role: 'Career Advisor', avatar: 'PK', email: 'parkavi23.annadurai@gmail.com' },
   { id: 'usr-6', name: 'Sreya', role: 'Career Advisor', avatar: 'SR', email: 'sreyarajendran96@gmail.com' },
   { id: 'usr-3', name: 'Lakshmanan', role: 'Senior Career Advisor', avatar: 'LK', email: 'laskhmanan@lasak.in' },
   { id: 'usr-2', name: 'Sanjana', role: 'Senior Career Advisor', avatar: 'SJ', email: 'sanjana@lasak.in' },
@@ -245,13 +242,13 @@ export const INITIAL_SCHEDULED_DEMOS = [
     notes: 'Candidate unreachable on phone.'
   },
 
-  // Aswathy (usr-7)
+  // Hari Haran (usr-9) - Civil/DM demos
   {
     id: 'sch-012',
     date: todayStr,
     timeSlot: '10:00 AM - 11:00 AM',
-    employeeId: 'usr-7',
-    employeeName: 'Aswathy',
+    employeeId: 'usr-9',
+    employeeName: 'Hari Haran',
     courseKey: 'CIVIL',
     prospectName: 'Ananya Bhatt',
     prospectPhone: '+91 97222 33445',
@@ -262,8 +259,8 @@ export const INITIAL_SCHEDULED_DEMOS = [
     id: 'sch-013',
     date: todayStr,
     timeSlot: '12:00 PM - 01:00 PM',
-    employeeId: 'usr-7',
-    employeeName: 'Aswathy',
+    employeeId: 'usr-9',
+    employeeName: 'Hari Haran',
     courseKey: 'CIVIL',
     prospectName: 'Rahul Deshmukh',
     prospectPhone: '+91 97333 44556',
@@ -274,8 +271,8 @@ export const INITIAL_SCHEDULED_DEMOS = [
     id: 'sch-014',
     date: todayStr,
     timeSlot: '02:00 PM - 03:00 PM',
-    employeeId: 'usr-7',
-    employeeName: 'Aswathy',
+    employeeId: 'usr-9',
+    employeeName: 'Hari Haran',
     courseKey: 'CIVIL',
     prospectName: 'Pooja Kulkarni',
     prospectPhone: '+91 97444 55667',
@@ -286,8 +283,8 @@ export const INITIAL_SCHEDULED_DEMOS = [
     id: 'sch-015',
     date: todayStr,
     timeSlot: '03:00 PM - 04:00 PM',
-    employeeId: 'usr-7',
-    employeeName: 'Aswathy',
+    employeeId: 'usr-9',
+    employeeName: 'Hari Haran',
     courseKey: 'DM',
     prospectName: 'Megha Sen',
     prospectPhone: '+91 97555 66778',
@@ -340,7 +337,7 @@ export const INITIAL_SCHEDULED_DEMOS = [
   { id: 'sch-022', date: yesterdayStr, timeSlot: '02:00 PM - 03:00 PM', employeeId: 'usr-5', employeeName: 'Siva', courseKey: 'MERN', prospectName: 'Anita Seth', prospectPhone: '+91 98003', status: 'Conducted', notes: '' },
   { id: 'sch-023', date: yesterdayStr, timeSlot: '03:00 PM - 04:00 PM', employeeId: 'usr-5', employeeName: 'Siva', courseKey: 'MERN', prospectName: 'Mohit Rao', prospectPhone: '+91 98004', status: 'Conducted', notes: '' },
   { id: 'sch-024', date: yesterdayStr, timeSlot: '04:00 PM - 05:00 PM', employeeId: 'usr-6', employeeName: 'Sreya', courseKey: 'CIVIL', prospectName: 'Ravi Teja', prospectPhone: '+91 98005', status: 'Conducted', notes: '' },
-  { id: 'sch-025', date: yesterdayStr, timeSlot: '12:00 PM - 01:00 PM', employeeId: 'usr-7', employeeName: 'Aswathy', courseKey: 'CIVIL', prospectName: 'Geeta Dey', prospectPhone: '+91 98006', status: 'Conducted', notes: '' },
+  { id: 'sch-025', date: yesterdayStr, timeSlot: '12:00 PM - 01:00 PM', employeeId: 'usr-9', employeeName: 'Hari Haran', courseKey: 'CIVIL', prospectName: 'Geeta Dey', prospectPhone: '+91 98006', status: 'Conducted', notes: '' },
   { id: 'sch-026', date: yesterdayStr, timeSlot: '01:00 PM - 02:00 PM', employeeId: 'usr-1', employeeName: 'Dr. Vikram', courseKey: 'DM', prospectName: 'Charu Jain', prospectPhone: '+91 98007', status: 'Conducted', notes: '' },
   { id: 'sch-027', date: yesterdayStr, timeSlot: '05:00 PM - 06:00 PM', employeeId: 'usr-1', employeeName: 'Dr. Vikram', courseKey: 'DM', prospectName: 'Harish Babu', prospectPhone: '+91 98008', status: 'Conducted', notes: '' },
 
@@ -348,14 +345,14 @@ export const INITIAL_SCHEDULED_DEMOS = [
   { id: 'sch-040', date: dayBeforeYesterdayStr, timeSlot: '10:00 AM - 11:00 AM', employeeId: 'usr-4', employeeName: 'Gukan', courseKey: 'MECH', prospectName: 'Karthik Raja', prospectPhone: '+91 97001', status: 'Conducted', notes: '' },
   { id: 'sch-041', date: dayBeforeYesterdayStr, timeSlot: '11:00 AM - 12:00 PM', employeeId: 'usr-5', employeeName: 'Siva', courseKey: 'MERN', prospectName: 'Priya Mani', prospectPhone: '+91 97002', status: 'Conducted', notes: '' },
   { id: 'sch-042', date: dayBeforeYesterdayStr, timeSlot: '02:00 PM - 03:00 PM', employeeId: 'usr-6', employeeName: 'Sreya', courseKey: 'CIVIL', prospectName: 'Saravanan', prospectPhone: '+91 97003', status: 'Conducted', notes: '' },
-  { id: 'sch-043', date: daysAgo3Str, timeSlot: '03:00 PM - 04:00 PM', employeeId: 'usr-7', employeeName: 'Aswathy', courseKey: 'DM', prospectName: 'Divya', prospectPhone: '+91 97004', status: 'Conducted', notes: '' },
+  { id: 'sch-043', date: daysAgo3Str, timeSlot: '03:00 PM - 04:00 PM', employeeId: 'usr-9', employeeName: 'Hari Haran', courseKey: 'DM', prospectName: 'Divya', prospectPhone: '+91 97004', status: 'Conducted', notes: '' },
   { id: 'sch-044', date: daysAgo4Str, timeSlot: '04:00 PM - 05:00 PM', employeeId: 'usr-1', employeeName: 'Dr. Vikram', courseKey: 'MERN', prospectName: 'Venkatesh', prospectPhone: '+91 97005', status: 'Conducted', notes: '' },
 
   // --- UPCOMING ---
   { id: 'sch-030', date: tomorrowStr, timeSlot: '10:00 AM - 11:00 AM', employeeId: 'usr-4', employeeName: 'Gukan', courseKey: 'MECH', prospectName: 'Devansh Pandey', prospectPhone: '+91 99001', status: 'Fixed', notes: 'Scheduled' },
   { id: 'sch-031', date: tomorrowStr, timeSlot: '12:00 PM - 01:00 PM', employeeId: 'usr-5', employeeName: 'Siva', courseKey: 'MERN', prospectName: 'Shruti Das', prospectPhone: '+91 99002', status: 'Fixed', notes: 'Scheduled' },
   { id: 'sch-032', date: tomorrowStr, timeSlot: '02:00 PM - 03:00 PM', employeeId: 'usr-6', employeeName: 'Sreya', courseKey: 'CIVIL', prospectName: 'Bhavya Shah', prospectPhone: '+91 99003', status: 'Fixed', notes: 'Scheduled' },
-  { id: 'sch-033', date: tomorrowStr, timeSlot: '03:00 PM - 04:00 PM', employeeId: 'usr-7', employeeName: 'Aswathy', courseKey: 'CIVIL', prospectName: 'Manish Tyagi', prospectPhone: '+91 99004', status: 'Fixed', notes: 'Scheduled' },
+  { id: 'sch-033', date: tomorrowStr, timeSlot: '03:00 PM - 04:00 PM', employeeId: 'usr-9', employeeName: 'Hari Haran', courseKey: 'CIVIL', prospectName: 'Manish Tyagi', prospectPhone: '+91 99004', status: 'Fixed', notes: 'Scheduled' },
   { id: 'sch-034', date: tomorrowStr, timeSlot: '04:00 PM - 05:00 PM', employeeId: 'usr-1', employeeName: 'Dr. Vikram', courseKey: 'DM', prospectName: 'Nisha Gupta', prospectPhone: '+91 99005', status: 'Fixed', notes: 'Scheduled' },
   { id: 'sch-035', date: tomorrowStr, timeSlot: '05:00 PM - 06:00 PM', employeeId: 'usr-1', employeeName: 'Dr. Vikram', courseKey: 'MERN', prospectName: 'Rohit Kadam', prospectPhone: '+91 99006', status: 'Fixed', notes: 'Scheduled' }
 ];

@@ -38,6 +38,11 @@ import { ALL_NORMALIZED_SCHEDULED_DEMOS } from '../data/allDemoRecords';
 export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demoDate', cleanView = false, showOnlyTimetable = false, showOnlyReport = false }) {
   // Check if active user has Head of Admissions privileges
   const isHead = currentUser?.roleCode === 'HEAD_ADMISSIONS';
+  // Senior advisors with dept='ALL' (e.g. Sanjana) see all staff except Dr. Vikram
+  const isSeniorAll = !isHead && currentUser?.dept === 'ALL';
+  // ID of Dr. Vikram — always excluded from Sanjana's views
+  const VIKRAM_ID = 'usr-1';
+  const VIKRAM_NAME = 'dr. vikram';
 
   // Date State - Default to '2026-09-26' (or today) where latest active batches are located
   const getTodayDateStr = () => '2026-09-26';
@@ -47,15 +52,18 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
   // Primary Dashboard View: 'master-records' (all 186 rows from Google Sheet) or 'timetable' (daily matrix & gauges)
   const [activeViewTab, setActiveViewTab] = useState('timetable');
 
-  // Auto-merge all 186 master records from Google Sheet into localStorage if needed
+  // Auto-merge and sanitize master records from Google Sheet, purging any corrupted matrix dummy multipliers
   React.useEffect(() => {
     setScheduledDemos((prev) => {
-      const has26 = prev && prev.some((d) => d.date === '2026-09-26');
-      const has28 = prev && prev.some((d) => d.date === '2026-09-28');
-      if (!prev || !has26 || !has28 || prev.length < ALL_NORMALIZED_SCHEDULED_DEMOS.length) {
+      if (!prev || !Array.isArray(prev)) return ALL_NORMALIZED_SCHEDULED_DEMOS;
+      // Strip out any rogue dummy matrix multiplier rows
+      const cleanList = prev.filter((d) => d && d.id && !d.id.startsWith('sch-matrix-'));
+      const has26 = cleanList.some((d) => d.date === '2026-09-26');
+      const has28 = cleanList.some((d) => d.date === '2026-09-28');
+      if (cleanList.length === 0 || !has26 || !has28 || cleanList.length < ALL_NORMALIZED_SCHEDULED_DEMOS.length) {
         return ALL_NORMALIZED_SCHEDULED_DEMOS;
       }
-      return prev;
+      return cleanList;
     });
   }, []);
 
@@ -107,6 +115,34 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
       return Array.from(allAdvisorsMap.values());
     }
 
+    // Senior advisors with dept='ALL' (e.g. Sanjana) see all employees EXCEPT Dr. Vikram
+    if (isSeniorAll) {
+      const allAdvisorsMap = new Map();
+      DEMO_EMPLOYEES.forEach((emp) => {
+        if (emp.id !== VIKRAM_ID && emp.name.toLowerCase() !== VIKRAM_NAME) {
+          allAdvisorsMap.set(emp.id, emp);
+        }
+      });
+      // Also pick up dynamically discovered advisors (not Vikram)
+      scheduledDemos.forEach((demo) => {
+        if (
+          demo.employeeId &&
+          demo.employeeId !== VIKRAM_ID &&
+          demo.employeeName?.toLowerCase() !== VIKRAM_NAME &&
+          !allAdvisorsMap.has(demo.employeeId)
+        ) {
+          allAdvisorsMap.set(demo.employeeId, {
+            id: demo.employeeId,
+            name: demo.employeeName || 'Advisor',
+            role: 'Career Advisor',
+            avatar: (demo.employeeName || 'CA').slice(0, 2).toUpperCase(),
+            email: ''
+          });
+        }
+      });
+      return Array.from(allAdvisorsMap.values());
+    }
+
     // For non-Head of Admissions, display ONLY their own employee profile
     const matched = DEMO_EMPLOYEES.find(
       (emp) =>
@@ -124,7 +160,7 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
         email: currentUser?.email || ''
       }
     ];
-  }, [isHead, currentUser, scheduledDemos]);
+  }, [isHead, isSeniorAll, currentUser, scheduledDemos]);
 
   // Utility to normalize any date/timestamp string to YYYY-MM-DD
   const normalizeDateStr = (rawDate) => {
@@ -192,6 +228,14 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
     if (isHead) {
       return filtered;
     }
+    // Senior-all (Sanjana): show all demos EXCEPT Vikram's
+    if (isSeniorAll) {
+      return filtered.filter(
+        (d) =>
+          d.employeeId !== VIKRAM_ID &&
+          d.employeeName?.toLowerCase() !== VIKRAM_NAME
+      );
+    }
     const myEmpIds = displayEmployees.map((e) => e.id);
     const myEmpNames = displayEmployees.map((e) => e.name.toLowerCase());
     return filtered.filter(
@@ -199,7 +243,7 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
         myEmpIds.includes(d.employeeId) ||
         myEmpNames.includes(d.employeeName?.toLowerCase())
     );
-  }, [scheduledDemos, selectedDate, isHead, displayEmployees, filterMode]);
+  }, [scheduledDemos, selectedDate, isHead, isSeniorAll, displayEmployees, filterMode]);
 
   // Aggregate Stats per Course for Selected Date
   const courseStats = useMemo(() => {
@@ -239,13 +283,22 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
     let targetList = scheduledDemos;
     
     if (!isHead) {
-      const myEmpIds = displayEmployees.map((e) => e.id);
-      const myEmpNames = displayEmployees.map((e) => e.name.toLowerCase());
-      targetList = scheduledDemos.filter(
-        (d) =>
-          myEmpIds.includes(d.employeeId) ||
-          myEmpNames.includes(d.employeeName?.toLowerCase())
-      );
+      if (isSeniorAll) {
+        // Sanjana: all demos except Vikram's
+        targetList = scheduledDemos.filter(
+          (d) =>
+            d.employeeId !== VIKRAM_ID &&
+            d.employeeName?.toLowerCase() !== VIKRAM_NAME
+        );
+      } else {
+        const myEmpIds = displayEmployees.map((e) => e.id);
+        const myEmpNames = displayEmployees.map((e) => e.name.toLowerCase());
+        targetList = scheduledDemos.filter(
+          (d) =>
+            myEmpIds.includes(d.employeeId) ||
+            myEmpNames.includes(d.employeeName?.toLowerCase())
+        );
+      }
     }
     
     if (selectedDate === 'ALL') return targetList.length;
@@ -258,6 +311,22 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
     });
     return count;
   }, [scheduledDemos, selectedDate, isHead, displayEmployees, filterMode]);
+
+  // Sanjana-safe full list: for master records table (excludes Vikram for isSeniorAll)
+  const visibleScheduledDemos = useMemo(() => {
+    if (isHead) return scheduledDemos;
+    if (isSeniorAll) {
+      return scheduledDemos.filter(
+        (d) => d.employeeId !== VIKRAM_ID && d.employeeName?.toLowerCase() !== VIKRAM_NAME
+      );
+    }
+    // Regular advisor: own records only
+    const myIds = displayEmployees.map((e) => e.id);
+    const myNames = displayEmployees.map((e) => e.name.toLowerCase());
+    return scheduledDemos.filter(
+      (d) => myIds.includes(d.employeeId) || myNames.includes(d.employeeName?.toLowerCase())
+    );
+  }, [scheduledDemos, isHead, isSeniorAll, displayEmployees]);
 
   // Employee Daily Stats for Selected Date (Filtered by Access Level)
   const employeeDailyStats = useMemo(() => {
@@ -559,54 +628,14 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
       return DEMO_EMPLOYEES[index % DEMO_EMPLOYEES.length];
     };
 
-    // Loop through all subsheets to parse student records & matrix summary
+    // Loop through all subsheets to parse authentic student lead & booking records
     Object.keys(sheetData.subSheets).forEach((tabKey) => {
       const sub = sheetData.subSheets[tabKey];
       if (!sub || !sub.data || !Array.isArray(sub.data)) return;
+      if (tabKey === 'Bookings & Demo Done') return; // Skip non-student matrix summary tab to avoid corrupted counts
 
-      if (tabKey === 'Bookings & Demo Done') {
-        // Parse Matrix Summary Sheet for employee totals per date
-        const headerRow = sub.data[1] || sub.data[0];
-        if (headerRow) {
-          const colToDate = {};
-          Object.keys(headerRow).forEach((k) => {
-            const val = headerRow[k];
-            if (val && String(val).includes('2026')) {
-              colToDate[k] = normalizeDate(val);
-            }
-          });
-
-          sub.data.forEach((row, idx) => {
-            const acStr = row['Bookings'];
-            if (!acStr || acStr === 'AC Name' || acStr === 'Total' || acStr === 'Interns' || acStr === 'Bookings') return;
-            const emp = resolveEmployee({ 'AC Name': acStr }, idx);
-
-            Object.keys(colToDate).forEach((colKey) => {
-              const count = parseInt(row[colKey], 10);
-              const dt = colToDate[colKey];
-              if (count > 0 && dt) {
-                dateCounts[dt] = (dateCounts[dt] || 0) + count;
-                for (let c = 0; c < count; c++) {
-                  allImportedDemos.push({
-                    id: `sch-matrix-${idx}-${colKey}-${c}`,
-                    date: dt,
-                    timeSlot: SLOTS[c % SLOTS.length],
-                    employeeId: emp.id,
-                    employeeName: emp.name,
-                    courseKey: ['MECH', 'CIVIL', 'MERN', 'DM'][c % 4],
-                    prospectName: `Prospect (${emp.name}) #${c + 1}`,
-                    prospectPhone: '+91 98941 12344',
-                    status: 'Fixed',
-                    notes: `Synced from Bookings & Demo Done matrix for ${dt}`
-                  });
-                }
-              }
-            });
-          });
-        }
-      } else {
-        // Helper for flexible case-insensitive cell property lookup
-        const getFlexibleVal = (rowObj, ...keys) => {
+      // Helper for flexible case-insensitive cell property lookup
+      const getFlexibleVal = (rowObj, ...keys) => {
           if (!rowObj || typeof rowObj !== 'object') return '';
           const rowKeys = Object.keys(rowObj);
           for (const k of keys) {
@@ -673,7 +702,6 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
             notes: notes.startsWith('Lead:') ? notes : `Lead: ${notes} | Fees: ₹${feeStr}`
           });
         });
-      }
     });
 
     if (allImportedDemos.length > 0) {
@@ -1212,7 +1240,7 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
       {activeViewTab === 'master-records' ? (
         !(showOnlyTimetable || showOnlyReport) && (
           <MasterRecordsTable
-            records={scheduledDemos}
+            records={visibleScheduledDemos}
             onSelectRecord={(rec) => setSelectedDemoDetail(rec)}
             onResetMasterData={handleResetMasterData}
             onOpenSheetModal={() => setIsSheetModalOpen(true)}

@@ -30,10 +30,7 @@ const INITIAL_EMPLOYEE_ENTRIES = [
   { id: 'emp-rec-1', employeeName: 'Gukan', date: getOffsetDateStr(0), createdAt: Date.now() },
   { id: 'emp-rec-2', employeeName: 'Siva', date: getOffsetDateStr(0), createdAt: Date.now() - 3600000 },
   { id: 'emp-rec-3', employeeName: 'Sreya', date: getOffsetDateStr(-1), createdAt: Date.now() - 86400000 },
-  { id: 'emp-rec-4', employeeName: 'Aswathy', date: getOffsetDateStr(-1), createdAt: Date.now() - 90000000 },
-  { id: 'emp-rec-5', employeeName: 'Parkavi', date: getOffsetDateStr(-2), createdAt: Date.now() - 172800000 },
-  { id: 'emp-rec-6', employeeName: 'Hari Haran', date: getOffsetDateStr(-2), createdAt: Date.now() - 176400000 },
-  { id: 'emp-rec-7', employeeName: 'Dinshiya', date: getOffsetDateStr(-3), createdAt: Date.now() - 259200000 }
+  { id: 'emp-rec-6', employeeName: 'Hari Haran', date: getOffsetDateStr(-2), createdAt: Date.now() - 176400000 }
 ];
 
 const DEFAULT_WEB_URL = 'https://script.google.com/macros/s/AKfycbyysKeO1b_pIiETYUZLOrNEJ1NINkZ2RVvr36ooa4ABzZxwjNHJoGS1a4k7_x6Ke_P1/exec';
@@ -385,7 +382,7 @@ export default function EmployeeEntryDashboard({ currentUser }) {
                   type="text"
                   className="text-input"
                   list="careerAdvisorsDatalist"
-                  placeholder="e.g. Gukan, Siva, Sreya, Aswathy, Parkavi..."
+                  placeholder="e.g. Gukan, Siva, Sreya, Hari Haran..."
                   value={employeeName}
                   onChange={(e) => {
                     setEmployeeName(e.target.value);
@@ -397,10 +394,7 @@ export default function EmployeeEntryDashboard({ currentUser }) {
                   <option value="Gukan" />
                   <option value="Siva" />
                   <option value="Sreya" />
-                  <option value="Aswathy" />
-                  <option value="Parkavi" />
                   <option value="Hari Haran" />
-                  <option value="Dinshiya" />
                   <option value="Lakshmanan" />
                 </datalist>
               </div>

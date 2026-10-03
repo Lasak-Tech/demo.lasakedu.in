@@ -15,8 +15,11 @@ export default function Sidebar({ user, activeTab, setActiveTab }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [expandedTab, setExpandedTab] = useState('demo-analytics');
   const isHead = user?.roleCode === 'HEAD_ADMISSIONS';
+  // Sanjana (SR_CAREER_ADVISOR, dept ALL) — full view access including User Management
+  // Lakshmanan (SR_CAREER_ADVISOR, dept !== 'ALL') — no User Management access
+  const canViewUserMgmt = isHead || (user?.roleCode === 'SR_CAREER_ADVISOR' && user?.dept === 'ALL');
 
-  // Navigation menu items — User Management only for Head of Admissions
+  // Navigation menu items
   const menuItems = [
     { id: 'employee', label: 'Employee', icon: Users },
     { id: 'career', label: 'Career', icon: Briefcase },
@@ -35,7 +38,7 @@ export default function Sidebar({ user, activeTab, setActiveTab }) {
       ]
     },
     { id: 'course-management', label: 'Course Management', icon: PlusSquare, externalUrl: 'https://course-managemnet.vercel.app/' },
-    ...(isHead ? [{ id: 'user-management', label: 'User Management', icon: UserCog }] : [])
+    ...(canViewUserMgmt ? [{ id: 'user-management', label: 'User Management', icon: UserCog }] : [])
   ];
 
   return (
@@ -144,11 +147,11 @@ export default function Sidebar({ user, activeTab, setActiveTab }) {
       {!isCollapsed && (
         <div className="sidebar-footer-card">
           <div className="access-level-header">
-            <ShieldCheck size={14} color={isHead ? "#4f46e5" : "#059669"} />
-            <span>{isHead ? 'Admin Portal' : 'Advisor Portal'}</span>
+            <ShieldCheck size={14} color={isHead ? "#4f46e5" : "#d97706"} />
+            <span>{isHead ? 'Admin Portal' : user?.roleCode === 'SR_CAREER_ADVISOR' ? 'Manager Portal' : 'Advisor Portal'}</span>
           </div>
           <div className="access-level-role">
-            {user?.name || user?.role || 'User'} ({isHead ? 'Full Reports Access' : 'My Reports Only'})
+            {user?.name || user?.role || 'User'} ({isHead ? 'Full Reports Access' : user?.roleCode === 'SR_CAREER_ADVISOR' ? (user?.dept === 'ALL' ? 'Staff Management Access' : 'Team View Access') : 'My Reports Only'})
           </div>
         </div>
       )}

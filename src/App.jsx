@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Login from './components/Login';
 import DepartmentSelect from './components/DepartmentSelect';
 import Header from './components/Header';
@@ -43,6 +43,15 @@ export default function App() {
   const [courses, setCourses] = useLocalStorage('lasak_courses', COURSES);
 
   const [recruitmentDrives] = useState(RECRUITMENT_DRIVES);
+
+  // Auto-purge relieved staff (Aswathy, Parkavi, Dinshiya) from localStorage if present
+  useEffect(() => {
+    const RELIEVED = ['aswathysivan222@gmail.com', 'parkavi23.annadurai@gmail.com', 'dinshiya21@gmail.com', 'usr-7', 'usr-8', 'usr-10'];
+    setStaffUsers(prev => {
+      const cleaned = prev.filter(u => !RELIEVED.includes(u.id) && !RELIEVED.includes(u.email?.toLowerCase()));
+      return cleaned.length !== prev.length ? cleaned : prev;
+    });
+  }, []);
 
   // Modals state
   const [detailModalStudent, setDetailModalStudent] = useState(null);
@@ -145,15 +154,18 @@ export default function App() {
 
   const handleToggleUserStatus = (userId) => {
     setStaffUsers(prev =>
-      prev.map(u => u.id === userId
-        ? { ...u, status: u.status === 'Active' ? 'Inactive' : 'Active' }
-        : u
-      )
+      prev.map(u => {
+        if (u.id === userId) {
+          if (u.roleCode === 'HEAD_ADMISSIONS') return u; // Protected
+          return { ...u, status: u.status === 'Active' ? 'Inactive' : 'Active' };
+        }
+        return u;
+      })
     );
   };
 
   const handleDeleteUser = (userId) => {
-    setStaffUsers(prev => prev.filter(u => u.id !== userId));
+    setStaffUsers(prev => prev.filter(u => u.id !== userId || u.roleCode === 'HEAD_ADMISSIONS'));
   };
 
   // --- Course / Dept Handlers ---
@@ -243,16 +255,22 @@ export default function App() {
         window.location.href = 'https://course-managemnet.vercel.app/';
         return null;
 
-      case 'user-management':
+      case 'user-management': {
+        const canAccessUserMgmt =
+          currentUser?.roleCode === 'HEAD_ADMISSIONS' ||
+          (currentUser?.roleCode === 'SR_CAREER_ADVISOR' && currentUser?.dept === 'ALL');
+        if (!canAccessUserMgmt) return <DemoAnalyticsDashboard currentUser={currentUser} filterMode="demoDate" cleanView={true} />;
         return (
           <UserManagement
             staffUsers={staffUsers}
+            currentUser={currentUser}
             onAddUser={handleAddUser}
             onEditUser={handleEditUser}
             onToggleStatus={handleToggleUserStatus}
             onDeleteUser={handleDeleteUser}
           />
         );
+      }
 
       default:
         return <DemoAnalyticsDashboard />;
