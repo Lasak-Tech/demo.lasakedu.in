@@ -214,7 +214,7 @@ export default function App() {
         return <DemoAnalyticsDashboard currentUser={currentUser} filterMode="bookedDate" cleanView={true} />;
 
       case 'demo-conducted':
-        return <DemoAnalyticsDashboard currentUser={currentUser} filterMode="conducted" cleanView={true} />;
+        return <DemoAnalyticsDashboard currentUser={currentUser} filterMode="conducted" cleanView={true} defaultDate="ALL" />;
 
       case 'time-slots':
         return <DemoAnalyticsDashboard currentUser={currentUser} filterMode="timetable" showOnlyTimetable={true} />;

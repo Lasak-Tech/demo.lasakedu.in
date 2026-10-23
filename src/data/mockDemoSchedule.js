@@ -60,7 +60,7 @@ export const DEMO_EMPLOYEES = [
   { id: 'usr-1', name: 'Dr. Vikram', role: 'Head of Admissions', avatar: 'VK', email: 'vikram@lasakedu.in' }
 ];
 
-import { ALL_NORMALIZED_SCHEDULED_DEMOS } from './allDemoRecords';
+import { ALL_NORMALIZED_SCHEDULED_DEMOS } from './allDemoRecords.js';
 
 // Date Offset Helper - Ensures dataset is dynamically up to date (0 = Today, -1 = Yesterday, 1 = Tomorrow)
 export const getOffsetDateStr = (offsetDays = 0) => {
@@ -76,7 +76,7 @@ const daysAgo3Str = getOffsetDateStr(-3);
 const daysAgo4Str = getOffsetDateStr(-4);
 const tomorrowStr = getOffsetDateStr(1);
 
-export const INITIAL_SCHEDULED_DEMOS = [
+const RAW_SCHEDULED_DEMOS = [
   ...ALL_NORMALIZED_SCHEDULED_DEMOS,
   // Additional dynamic live demos:
   // --- TODAY: Live Up To Date ---
@@ -356,4 +356,35 @@ export const INITIAL_SCHEDULED_DEMOS = [
   { id: 'sch-034', date: tomorrowStr, timeSlot: '04:00 PM - 05:00 PM', employeeId: 'usr-1', employeeName: 'Dr. Vikram', courseKey: 'DM', prospectName: 'Nisha Gupta', prospectPhone: '+91 99005', status: 'Fixed', notes: 'Scheduled' },
   { id: 'sch-035', date: tomorrowStr, timeSlot: '05:00 PM - 06:00 PM', employeeId: 'usr-1', employeeName: 'Dr. Vikram', courseKey: 'MERN', prospectName: 'Rohit Kadam', prospectPhone: '+91 99006', status: 'Fixed', notes: 'Scheduled' }
 ];
+
+export const INITIAL_SCHEDULED_DEMOS = RAW_SCHEDULED_DEMOS.map((d) => {
+  const normDate = d.date || todayStr;
+  let bDate = d.bookedDate;
+  if (!bDate) {
+    if (d.id && d.id.startsWith('sch-03')) {
+      // Upcoming demos (sch-030 to sch-035) were fixed/booked TODAY via calling!
+      bDate = todayStr;
+    } else if (d.id && (d.id.startsWith('sch-02') || d.id.startsWith('sch-04'))) {
+      bDate = d.date;
+    } else if (d.timestamp) {
+      const tsPart = d.timestamp.split(' ')[0];
+      if (tsPart.includes('/')) {
+        const [day, m, y] = tsPart.split('/');
+        bDate = `${y}-${m.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      } else {
+        bDate = tsPart;
+      }
+    } else {
+      bDate = normDate;
+    }
+  }
+
+  return {
+    ...d,
+    courseName: DEMO_COURSES[d.courseKey]?.fullName || d.courseName || 'Course',
+    bookedDate: bDate,
+    timestamp: d.timestamp || `${bDate} 10:00:00`
+  };
+});
+
 
