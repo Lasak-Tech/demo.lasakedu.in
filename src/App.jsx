@@ -74,6 +74,31 @@ export default function App() {
     setAssignModalStudent(null);
   };
 
+  // --- Credential Handlers (Change Temporary Email & Password) ---
+  const handleUpdateCredentials = (userId, newEmail, newPassword) => {
+    const trimmedEmail = newEmail.trim().toLowerCase();
+    setStaffUsers((prev) =>
+      prev.map((u) => {
+        if (u.id === userId) {
+          return {
+            ...u,
+            email: trimmedEmail,
+            password: newPassword
+          };
+        }
+        return u;
+      })
+    );
+
+    if (currentUser && currentUser.id === userId) {
+      setCurrentUser((prev) => ({
+        ...prev,
+        email: trimmedEmail,
+        password: newPassword
+      }));
+    }
+  };
+
   // --- Department Handlers ---
   const handleSelectDepartment = (deptCode) => setSelectedDepartment(deptCode);
 
@@ -190,7 +215,13 @@ export default function App() {
 
   // SCREEN 1: Login
   if (!currentUser) {
-    return <Login onLoginSuccess={handleLoginSuccess} />;
+    return (
+      <Login
+        onLoginSuccess={handleLoginSuccess}
+        staffUsers={staffUsers}
+        onUpdateCredentials={handleUpdateCredentials}
+      />
+    );
   }
 
   // SCREEN 2: Department Selection (skip if already selected)
@@ -284,6 +315,8 @@ export default function App() {
         selectedDepartment={selectedDepartment}
         onDepartmentChange={handleSelectDepartment}
         onLogout={handleLogout}
+        staffUsers={staffUsers}
+        onUpdateCredentials={handleUpdateCredentials}
       />
 
       <div className="app-main-layout">
