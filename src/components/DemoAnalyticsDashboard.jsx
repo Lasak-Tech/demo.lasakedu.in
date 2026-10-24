@@ -362,6 +362,40 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
 
   const totalDemosFixedToday = dateDemos.length;
 
+  // Calculate cancelled demos (same date/user scope, but status === 'Cancelled') for conducted funnel
+  const cancelledDemos = useMemo(() => {
+    if (filterMode !== 'conducted') return [];
+    const rawDateDemos = selectedDate === 'ALL'
+      ? scheduledDemos
+      : scheduledDemos.filter((d) => {
+          const dDate = normalizeDateStr(d.date);
+          const bDate = d.bookedDate ? normalizeDateStr(d.bookedDate) : normalizeDateStr(d.date);
+          return (dDate === selectedDate || bDate === selectedDate);
+        });
+    let filtered = rawDateDemos.filter(d => {
+      if (d.status !== 'Cancelled') return false;
+      if (d.sourceTab) return d.sourceTab === 'Demo Conduction Responses' || d.sourceTab === 'Demo Booking Responses';
+      if (d.id && d.id.startsWith('sch-gsheet-')) return d.id.startsWith('sch-gsheet-DemoConductionResponses') || d.id.startsWith('sch-gsheet-DemoBookingResponses');
+      return true;
+    });
+    if (isHead) return filtered;
+    if (isSeniorAll) {
+      return filtered.filter(d => d.employeeId !== VIKRAM_ID && d.employeeName?.toLowerCase() !== VIKRAM_NAME);
+    }
+    const myEmpIds = displayEmployees.map(e => e.id);
+    const myEmpNames = displayEmployees.map(e => e.name.toLowerCase());
+    return filtered.filter(d => myEmpIds.includes(d.employeeId) || myEmpNames.includes(d.employeeName?.toLowerCase()));
+  }, [scheduledDemos, selectedDate, isHead, isSeniorAll, displayEmployees, filterMode]);
+
+  // Cancelled demos per course breakdown
+  const cancelledCourseStats = useMemo(() => {
+    const counts = { MECH: 0, CIVIL: 0, MERN: 0, DM: 0 };
+    cancelledDemos.forEach(d => {
+      if (counts[d.courseKey] !== undefined) counts[d.courseKey] += 1;
+    });
+    return counts;
+  }, [cancelledDemos]);
+
   // Calculate total demos BOOKED (created) on the selected date (using Timestamp/bookedDate)
   const totalBookedToday = useMemo(() => {
     if (filterMode === 'bookedDate') return dateDemos.length;
@@ -1146,48 +1180,96 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
           <div>
             <span style={{ fontSize: '0.8rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#64748b' }}>
               {isConductedMode
-                ? (selectedDate === 'ALL' ? 'Total Demos Conducted Till Date (இதுவரை மொத்தம்)' : 'Total Demos Conducted on Selected Date')
+                ? (selectedDate === 'ALL' ? 'Overall Demo Status (இதுவரை மொத்தம்)' : `Demo Status — ${getFormattedDateLabel(selectedDate)}`)
                 : (isBookingMode
                   ? (selectedDate === 'ALL' ? 'Total Demos Fixed via Calling Till Date (இதுவரை மொத்தம்)' : 'Total Demos Fixed via Calling on Selected Date')
-                  : (selectedDate === 'ALL'
-                      ? 'Total Demos Scheduled Across All Dates (எல்லா தேதிகளும்)'
-                      : (selectedDate === getTodayDateStr()
-                          ? 'Total Demos Scheduled to Conduct Today (இன்று)'
-                          : (selectedDate === getTomorrowDateStr()
-                              ? 'Total Demos Scheduled to Conduct Tomorrow (நாளை)'
-                              : `Total Demos Scheduled to Conduct on ${getFormattedDateLabel(selectedDate)}`))))}
+                  : `Demos Scheduled — ${getFormattedDateLabel(selectedDate)}`)}
             </span>
-            <div style={{ fontSize: '1.75rem', fontWeight: '800', color: '#0f172a', marginTop: '0.1rem' }}>
-              {dateDemos.length} <span style={{ fontSize: '0.95rem', fontWeight: '600', color: '#64748b' }}>{isConductedMode ? 'Completed Demos' : 'Demos'}</span>
-            </div>
+            {isConductedMode ? (
+              <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center', marginTop: '0.25rem', flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: '1.75rem', fontWeight: '800', color: '#15803d' }}>
+                    {dateDemos.length} <span style={{ fontSize: '0.85rem', fontWeight: '600', color: '#64748b' }}>Conducted ✅</span>
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '1.75rem', fontWeight: '800', color: '#dc2626' }}>
+                    {cancelledDemos.length} <span style={{ fontSize: '0.85rem', fontWeight: '600', color: '#64748b' }}>Cancelled ❌</span>
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: '700', color: '#475569' }}>
+                    {dateDemos.length + cancelledDemos.length} <span style={{ fontSize: '0.8rem', fontWeight: '600', color: '#94a3b8' }}>Total</span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div style={{ fontSize: '1.75rem', fontWeight: '800', color: '#0f172a', marginTop: '0.1rem' }}>
+                {dateDemos.length} <span style={{ fontSize: '0.95rem', fontWeight: '600', color: '#64748b' }}>Demos</span>
+              </div>
+            )}
           </div>
 
           {/* Quick Course Breakdown Pills */}
-          <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
-            {courseStats.map((c) => (
-              <div
-                key={c.key}
-                onClick={() => setSelectedCourseGauges(c.key)}
-                style={{
-                  background: c.bgColor,
-                  border: `1px solid ${c.borderColor}`,
-                  color: c.darkColor,
-                  padding: '0.4rem 0.75rem',
-                  borderRadius: '0.5rem',
-                  fontSize: '0.825rem',
-                  fontWeight: '700',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.4rem',
-                  cursor: 'pointer'
-                }}
-                title={`Click to view ${c.fullName} students`}
-              >
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: c.color }} />
-                <span>{c.name}:</span>
-                <span style={{ fontSize: '0.9rem', fontWeight: '800' }}>{c.count} {modeLabel}</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {/* Conducted per course */}
+            <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+              {courseStats.map((c) => (
+                <div
+                  key={c.key}
+                  onClick={() => setSelectedCourseGauges(c.key)}
+                  style={{
+                    background: c.bgColor,
+                    border: `1px solid ${c.borderColor}`,
+                    color: c.darkColor,
+                    padding: '0.4rem 0.75rem',
+                    borderRadius: '0.5rem',
+                    fontSize: '0.825rem',
+                    fontWeight: '700',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    cursor: 'pointer'
+                  }}
+                  title={`Click to view ${c.fullName} students`}
+                >
+                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: c.color }} />
+                  <span>{c.name}:</span>
+                  <span style={{ fontSize: '0.9rem', fontWeight: '800' }}>{c.count} {isConductedMode ? '✅' : modeLabel}</span>
+                </div>
+              ))}
+            </div>
+            {/* Cancelled per course — only in conducted mode */}
+            {isConductedMode && cancelledDemos.length > 0 && (
+              <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+                {Object.keys(DEMO_COURSES).map((key) => {
+                  const course = DEMO_COURSES[key];
+                  const cancelCount = cancelledCourseStats[key] || 0;
+                  if (cancelCount === 0) return null;
+                  return (
+                    <div
+                      key={`cancel-${key}`}
+                      style={{
+                        background: '#fef2f2',
+                        border: '1px solid #fecaca',
+                        color: '#dc2626',
+                        padding: '0.35rem 0.65rem',
+                        borderRadius: '0.5rem',
+                        fontSize: '0.775rem',
+                        fontWeight: '700',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.35rem'
+                      }}
+                    >
+                      <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#ef4444' }} />
+                      <span>{course.name}:</span>
+                      <span style={{ fontWeight: '800' }}>{cancelCount} ❌</span>
+                    </div>
+                  );
+                })}
               </div>
-            ))}
+            )}
           </div>
         </div>
 
