@@ -96,13 +96,14 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
 
   // One-time migration: clear old mock-polluted localStorage cache so fresh sheet data takes over
   React.useEffect(() => {
-    const migrationKey = 'lasak_demo_cache_v9_ist_and_booking_fix'; // v9: IST timezone fix + all fixed bookings in funnel
+    const migrationKey = 'lasak_demo_cache_v10_no_overlap_live_sync'; // v10: clean deduplicated live sheet sync without overlap
     if (!localStorage.getItem(migrationKey)) {
       // Purge old mixed/wrong-course-resolved data cache completely
       localStorage.removeItem('lasak_scheduled_demos');
       localStorage.removeItem('lasak_live_sheet_loaded');
       localStorage.removeItem('lasak_sheet_last_fetched');
       // Clear all previous migration flags too
+      localStorage.removeItem('lasak_demo_cache_v9_ist_and_booking_fix');
       localStorage.removeItem('lasak_demo_cache_v8_status_fix');
       localStorage.removeItem('lasak_demo_cache_v7_migrated');
       localStorage.removeItem('lasak_demo_cache_v6_migrated');
