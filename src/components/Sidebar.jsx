@@ -32,7 +32,7 @@ export default function Sidebar({ user, activeTab, setActiveTab }) {
       highlight: true,
       subItems: [
         { id: 'demo-booking-funnel', label: 'Demo Booking Funnel' },
-        { id: 'demo-fixed-today', label: 'Demo Fixed For Today Funnel' },
+        { id: 'demo-fixed-today', label: 'Demo Schedule Funnel' },
         { id: 'demo-conducted', label: 'Demo Conducted Funnel' },
         { id: 'time-slots', label: 'Time Slots' },
         { id: 'todays-funnel-report', label: "Today's Funnel Report Summary" }
