@@ -273,47 +273,46 @@ export const fetchFromGoogleSheet = async (webAppUrl) => {
       throw new Error(json.message || 'Error executing doGet script in Google Apps Script.');
     }
 
-    // CASE 1: Response is an array of row objects directly (User Apps Script style)
-    if (Array.isArray(json)) {
-      subSheetsResult['Demo Booking Responses'] = { totalRows: json.length, data: json };
-      subSheetsResult['Revenue Responses'] = { totalRows: json.length, data: json };
-
-      // Try fetching specific tabs in parallel to build complete multi-sheet view
-      const tabsToFetch = ['Demo Booking Responses', 'Bookings & Demo Done', 'Demo Conduction Responses', 'Revenue Responses', 'Student Data'];
-      await Promise.all(
-        tabsToFetch.map(async (tabName) => {
-          try {
-            const tabUrl = cleanUrl + (cleanUrl.includes('?') ? '&' : '?') + 'sheet=' + encodeURIComponent(tabName) + '&t=' + Date.now();
-            const tabRes = await fetch(tabUrl, { method: 'GET' });
-            if (tabRes.ok) {
-              const tabJson = await tabRes.json();
-              if (Array.isArray(tabJson) && tabJson.length > 0) {
-                subSheetsResult[tabName] = { totalRows: tabJson.length, data: tabJson };
-              }
-            }
-          } catch (e) {
-            // Ignore single tab fetch error
-          }
-        })
-      );
-
-      return {
-        status: 'success',
-        spreadsheetName: 'Lasak - Sales Revenue Tracker View',
-        subSheets: subSheetsResult
-      };
-    }
-
-    // CASE 2: Response contains subSheets object (Template style)
+    // CASE 2: Response already contains subSheets object (multi-sheet template)
     if (json.subSheets) {
       return json;
     }
 
+    // CASE 1: Fetch each specific sub-sheet tab explicitly with clean row validation
+    const tabsToFetch = ['Demo Booking Responses', 'Demo Conduction Responses', 'Revenue Responses', 'Student Data'];
+    await Promise.all(
+      tabsToFetch.map(async (tabName) => {
+        try {
+          const tabUrl = cleanUrl + (cleanUrl.includes('?') ? '&' : '?') + 'sheet=' + encodeURIComponent(tabName) + '&t=' + Date.now();
+          const tabRes = await fetch(tabUrl, { method: 'GET' });
+          if (tabRes.ok) {
+            const tabJson = await tabRes.json();
+            if (Array.isArray(tabJson) && tabJson.length > 0) {
+              // Strip trailing blank rows from Google Sheet
+              const cleanRows = tabJson.filter(
+                (r) => r && typeof r === 'object' && Object.values(r).some((val) => val !== null && val !== undefined && String(val).trim() !== '')
+              );
+              subSheetsResult[tabName] = { totalRows: cleanRows.length, data: cleanRows };
+            }
+          }
+        } catch (e) {
+          console.warn(`Error fetching tab ${tabName}:`, e);
+        }
+      })
+    );
+
+    // If Demo Booking Responses was empty, fallback to json if it looks like booking rows
+    if (!subSheetsResult['Demo Booking Responses'] && Array.isArray(json)) {
+      const cleanRows = json.filter(
+        (r) => r && typeof r === 'object' && Object.values(r).some((val) => val !== null && val !== undefined && String(val).trim() !== '')
+      );
+      subSheetsResult['Demo Booking Responses'] = { totalRows: cleanRows.length, data: cleanRows };
+    }
+
     return {
       status: 'success',
-      subSheets: {
-        'Main Sheet': { totalRows: Array.isArray(json) ? json.length : 0, data: Array.isArray(json) ? json : [] }
-      }
+      spreadsheetName: 'Lasak - Sales Revenue Tracker View',
+      subSheets: subSheetsResult
     };
   } catch (error) {
     throw new Error(error.message);

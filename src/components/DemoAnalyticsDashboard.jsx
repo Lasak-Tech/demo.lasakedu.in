@@ -46,46 +46,77 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
 
   // Date State - Default to 'ALL' (Till Date / இதுவரை) for conducted funnel, or today for daily funnels
   const getTodayDateStr = () => new Date().toISOString().split('T')[0];
-  const initialDate = defaultDate !== undefined ? defaultDate : (filterMode === 'conducted' ? 'ALL' : getTodayDateStr());
+  const getTomorrowDateStr = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split('T')[0];
+  };
+  const initialDate = defaultDate !== undefined ? defaultDate : ((filterMode === 'conducted' || filterMode === 'bookedDate') ? 'ALL' : getTodayDateStr());
   const [selectedDate, setSelectedDate] = useState(initialDate);
   const [scheduledDemos, setScheduledDemos] = useLocalStorage('lasak_scheduled_demos', INITIAL_SCHEDULED_DEMOS);
+  // Flag: true once real Google Sheet data has been fetched and loaded (prevents mock data pollution)
+  const [liveSheetLoaded, setLiveSheetLoaded] = useLocalStorage('lasak_live_sheet_loaded', false);
+  // Sheet fetch status for UI indicator
+  const [sheetFetchStatus, setSheetFetchStatus] = useState('idle'); // 'idle' | 'loading' | 'success' | 'error'
+  const [sheetLastFetchedAt, setSheetLastFetchedAt] = useLocalStorage('lasak_sheet_last_fetched', null);
 
   // Primary Dashboard View: 'master-records' (all 186 rows from Google Sheet) or 'timetable' (daily matrix & gauges)
   const [activeViewTab, setActiveViewTab] = useState('timetable');
 
-  // Auto-merge and sanitize master records from Google Sheet, ensuring live calling and course data is present
+  // On first mount: only seed mock data if no live Google Sheet data has been loaded yet
   React.useEffect(() => {
+    if (liveSheetLoaded) {
+      // Live Google Sheet data already present — skip mock data injection completely
+      setScheduledDemos((prev) => {
+        if (!prev || !Array.isArray(prev) || prev.length === 0) return INITIAL_SCHEDULED_DEMOS;
+        // Only clean up matrix entries; never re-inject mock entries over real data
+        return prev.filter((d) => d && d.id && !d.id.startsWith('sch-matrix-'));
+      });
+      return;
+    }
+    // No live data yet — seed with mock data as placeholder
     setScheduledDemos((prev) => {
-      const todayStr = getTodayDateStr();
       const base = (!prev || !Array.isArray(prev) || prev.length === 0) ? INITIAL_SCHEDULED_DEMOS : prev;
       const cleanList = base.filter((d) => d && d.id && !d.id.startsWith('sch-matrix-'));
-
-      // Ensure mock schedule demos (sch-001 to sch-035) for all 4 courses for today & upcoming are always fresh & present
       const initMap = new Map(INITIAL_SCHEDULED_DEMOS.map(d => [d.id, d]));
       const updatedList = cleanList.map(d => {
         if (initMap.has(d.id)) {
           const init = initMap.get(d.id);
-          return {
-            ...init,
-            ...d,
-            date: init.date,
-            bookedDate: init.bookedDate,
-            courseKey: init.courseKey,
-            status: d.status || init.status
-          };
+          return { ...init, ...d, date: init.date, bookedDate: init.bookedDate, courseKey: init.courseKey, status: d.status || init.status };
         }
         return d;
       });
-
       const existingIds = new Set(updatedList.map(d => d.id));
       const missingInitial = INITIAL_SCHEDULED_DEMOS.filter(d => !existingIds.has(d.id));
-
       return [...missingInitial, ...updatedList];
     });
   }, []);
 
+  // One-time migration: clear old mock-polluted localStorage cache so fresh sheet data takes over
+  React.useEffect(() => {
+    const migrationKey = 'lasak_demo_cache_v7_migrated'; // v7: force fresh sync of all 333/334 live sheet rows up to row 334
+    if (!localStorage.getItem(migrationKey)) {
+      // Purge old mixed/wrong-course-resolved data cache completely
+      localStorage.removeItem('lasak_scheduled_demos');
+      localStorage.removeItem('lasak_live_sheet_loaded');
+      localStorage.removeItem('lasak_sheet_last_fetched');
+      // Clear all previous migration flags too
+      localStorage.removeItem('lasak_demo_cache_v6_migrated');
+      localStorage.removeItem('lasak_demo_cache_v5_migrated');
+      localStorage.removeItem('lasak_demo_cache_v4_migrated');
+      localStorage.removeItem('lasak_demo_cache_v3_migrated');
+      localStorage.removeItem('lasak_demo_cache_v2_migrated');
+      localStorage.removeItem('lasak_demo_cache_v1_migrated');
+      localStorage.setItem(migrationKey, '1');
+      setLiveSheetLoaded(false);
+      setScheduledDemos(INITIAL_SCHEDULED_DEMOS);
+    }
+  }, []);
+
   const handleResetMasterData = () => {
     setScheduledDemos(INITIAL_SCHEDULED_DEMOS);
+    setLiveSheetLoaded(false);
+    setSheetLastFetchedAt(null);
     setSelectedDate(getTodayDateStr());
     setActiveViewTab('master-records');
   };
@@ -247,11 +278,37 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
 
     let filtered = rawDateDemos;
     if (filterMode === 'conducted') {
-      filtered = rawDateDemos.filter(d => d.status === 'Conducted');
+      filtered = rawDateDemos.filter(d => {
+        if (d.status !== 'Conducted') return false;
+        if (d.sourceTab) return d.sourceTab === 'Demo Conduction Responses' || d.sourceTab === 'Demo Booking Responses';
+        if (d.id && d.id.startsWith('sch-gsheet-')) return d.id.startsWith('sch-gsheet-DemoConductionResponses') || d.id.startsWith('sch-gsheet-DemoBookingResponses');
+        return true;
+      });
     } else if (filterMode === 'demoDate') {
-      filtered = rawDateDemos.filter(d => d.status !== 'Cancelled');
+      filtered = rawDateDemos.filter(d => {
+        if (d.status === 'Cancelled') return false;
+        if (d.sourceTab) return d.sourceTab === 'Demo Booking Responses';
+        if (d.id && d.id.startsWith('sch-gsheet-')) return d.id.startsWith('sch-gsheet-DemoBookingResponses');
+        if (d.id && (d.id.startsWith('sch-custom-') || d.id.startsWith('sch-excel-'))) return true;
+        return false;
+      });
     } else if (filterMode === 'bookedDate') {
-      filtered = rawDateDemos.filter(d => d.status !== 'Cancelled');
+      // ONLY show records from 'Demo Booking Responses' tab (strictly 331 live demos)
+      filtered = rawDateDemos.filter(d => {
+        if (d.status === 'Cancelled') return false;
+        // Primary check: record explicitly tagged with Demo Booking Responses tab
+        if (d.sourceTab) return d.sourceTab === 'Demo Booking Responses';
+        // Fallback for cached entries: check id prefix
+        if (d.id && d.id.startsWith('sch-gsheet-')) {
+          return d.id.startsWith('sch-gsheet-DemoBookingResponses');
+        }
+        // Manual entries created through UI
+        if (d.id && (d.id.startsWith('sch-custom-') || d.id.startsWith('sch-excel-'))) {
+          return true;
+        }
+        // Explicitly reject all other tabs (Conduction, Revenue, Student) and mock demos (sch-001...)
+        return false;
+      });
     }
 
     if (isHead) {
@@ -482,6 +539,36 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
     }));
   }, [scheduledDemos, filterMode]);
 
+  // Dynamic upcoming dates for quick filter pills in daily funnels
+  const upcomingDates = useMemo(() => {
+    const dateMap = {};
+    scheduledDemos.forEach((d) => {
+      if (d.status === 'Cancelled') return;
+      const isBookingTab = d.sourceTab ? d.sourceTab === 'Demo Booking Responses' : (d.id && d.id.startsWith('sch-gsheet-DemoBookingResponses'));
+      if (!isBookingTab) return;
+      const nDate = filterMode === 'bookedDate'
+        ? (d.bookedDate ? normalizeDateStr(d.bookedDate) : normalizeDateStr(d.date))
+        : normalizeDateStr(d.date);
+      if (nDate) {
+        dateMap[nDate] = (dateMap[nDate] || 0) + 1;
+      }
+    });
+    const today = getTodayDateStr();
+    const tomorrow = getTomorrowDateStr();
+    return Object.keys(dateMap)
+      .sort()
+      .map((dt) => {
+        let label = dt;
+        if (dt === today) label = 'Today (இன்று)';
+        else if (dt === tomorrow) label = 'Tomorrow (நாளை)';
+        else {
+          const parts = dt.split('-');
+          if (parts.length === 3) label = `${parts[2]}/${parts[1]}`;
+        }
+        return { date: dt, label, count: dateMap[dt] };
+      });
+  }, [scheduledDemos, filterMode]);
+
   // Timetable Matrix Lookup: employeeId + timeSlot -> Array of Demos for selected date
   const timetableMatrix = useMemo(() => {
     const map = {};
@@ -670,27 +757,35 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
     };
 
     // Helper: Smart Course Resolver across all 4 course gauges (MECH, CIVIL, MERN, DM)
+    // Priority: Course Name field > Course field > full-text (with safe, specific keywords only)
     const resolveCourseKey = (row, index = 0) => {
-      const combined = [
-        row['Course'],
-        row['Course Name'],
-        row['Course Key'],
-        row['Lead Source'],
-        row['Department'],
-        row['Student Type'],
-        row['Notes'],
-        row['Comments'],
-        row['Batch Month']
+      // Step 1: Use the explicit Course Name / Course field as primary source
+      const courseName = String(row['Course Name'] || row['Course'] || row['Course Key'] || '').toLowerCase().trim();
+      if (courseName) {
+        if (/civil|struct|building|revit|staad|survey|construction|drafting|architect/i.test(courseName)) return 'CIVIL';
+        if (/mern|full.?stack|react|node|javascript|python|java|software|programming|it\b|\bit\b|web dev|backend|frontend/i.test(courseName)) return 'MERN';
+        if (/digital.?marketing|\bdm\b|seo|social media|ads|content marketing|branding/i.test(courseName)) return 'DM';
+        if (/mech|auto|\bcad\b|solidworks|catia|ansys|creo|hvac|piping|thermal|design|manufacturing/i.test(courseName)) return 'MECH';
+        // Partial keyword fallback on course name
+        if (/\bcivil\b/.test(courseName)) return 'CIVIL';
+        if (/\bmern\b|\bstack\b/.test(courseName)) return 'MERN';
+        if (/\bdigital\b|\bmarketing\b/.test(courseName)) return 'DM';
+        if (/\bmech\b|\bengineering\b|designing/.test(courseName)) return 'MECH';
+      }
+
+      // Step 2: Try Department / Lead Source / Student Type fields only (no comments/notes - too noisy)
+      const safeFields = [
+        row['Lead Source'], row['Department'], row['Student Type'], row['Batch Month']
       ].filter(Boolean).join(' ').toLowerCase();
+      if (safeFields) {
+        if (/civil|structur|building|construction|architect/i.test(safeFields)) return 'CIVIL';
+        if (/mern|fullstack|full.?stack|javascript|python|java|react|node|software|programming/i.test(safeFields)) return 'MERN';
+        if (/digital.?marketing|social.?media|seo|\bads\b|branding/i.test(safeFields)) return 'DM';
+        if (/mechanical|\bcad\b|solidworks|ansys|catia|hvac|piping/i.test(safeFields)) return 'MECH';
+      }
 
-      if (/civil|structur|building|revit|staad|survey|construction|drafting|architect/i.test(combined)) return 'CIVIL';
-      if (/mern|fullstack|full stack|web|python|java|react|node|javascript|software|code|it|dev|ai|backend|frontend/i.test(combined)) return 'MERN';
-      if (/digital|marketing|dm|seo|social|media|ads|content|branding/i.test(combined)) return 'DM';
-      if (/mech|auto|cad|solidworks|catia|ansys|creo|hvac|piping|thermal|design|manufacturing/i.test(combined)) return 'MECH';
-
-      // Fallback: Distribute evenly across all 4 courses to populate all gauges
-      const COURSE_KEYS = ['MECH', 'CIVIL', 'MERN', 'DM'];
-      return COURSE_KEYS[index % COURSE_KEYS.length];
+      // Step 3: Default fallback — MECH (most common course, avoids polluting other course counts)
+      return 'MECH';
     };
 
     // Helper: Smart Advisor Resolver across all advisor profiles (with dynamic auto-creation)
@@ -799,6 +894,7 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
             prospectName: studentName || studentEmail || `Student Record #${index + 1}`,
             prospectPhone: phone || '+91 98000 00000',
             status: status,
+            sourceTab: tabKey,
             notes: notes.startsWith('Lead:') ? notes : `Lead: ${notes} | Fees: ₹${feeStr}`
           });
         });
@@ -806,33 +902,50 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
 
     if (allImportedDemos.length > 0) {
       setScheduledDemos((prev) => {
-        const existingIds = new Set(allImportedDemos.map((d) => d.id));
-        const nonSheet = (prev || []).filter((d) => !d.id.startsWith('sch-gsheet-'));
-        // Always preserve live initial scheduled demos across all 4 courses
-        const initialToPreserve = INITIAL_SCHEDULED_DEMOS.filter((d) => !existingIds.has(d.id));
-        const combined = [...allImportedDemos, ...nonSheet];
-        const combinedIds = new Set(combined.map((d) => d.id));
-        const missingInitial = initialToPreserve.filter((d) => !combinedIds.has(d.id));
-        return [...allImportedDemos, ...missingInitial, ...nonSheet];
+        // Keep only manually added demos (custom entries, not sheet or mock data)
+        const manualDemos = (prev || []).filter((d) =>
+          d.id.startsWith('sch-custom-') || d.id.startsWith('sch-excel-')
+        );
+        const manualIds = new Set(manualDemos.map((d) => d.id));
+        const uniqueManual = manualDemos.filter((d) => !manualIds.has(d.id));
+        // Real sheet data takes full priority — NO mock data injection
+        return [...allImportedDemos, ...uniqueManual];
       });
 
-      // Keep selectedDate defaulting to today
-      setSelectedDate(getTodayDateStr());
+      // Mark live sheet as loaded so mock data is never re-injected
+      setLiveSheetLoaded(true);
+      setSheetLastFetchedAt(new Date().toISOString());
+      setSheetFetchStatus('success');
+      // Keep selectedDate defaulting to 'ALL' for bookedDate and conducted modes, or today for other modes
+      if (filterMode !== 'bookedDate' && filterMode !== 'conducted') {
+        setSelectedDate(getTodayDateStr());
+      }
     }
   };
 
-  // Auto-fetch data live from Google Sheet web app on mount
-  React.useEffect(() => {
+  // Auto-fetch live data from Google Sheet on mount, then refresh every 5 minutes
+  const doAutoFetch = React.useCallback(() => {
     const targetUrl = adminSheetUrl && adminSheetUrl.trim() ? adminSheetUrl.trim() : DEFAULT_URL;
+    setSheetFetchStatus('loading');
     fetchFromGoogleSheet(targetUrl)
       .then((data) => {
         if (data && data.subSheets) {
           handleFetchDataFromSheet(data);
+        } else {
+          setSheetFetchStatus('idle');
         }
       })
       .catch((err) => {
-        console.warn('Auto fetch from Google Sheet on mount skipped or failed:', err);
+        console.warn('Auto fetch from Google Sheet skipped or failed:', err);
+        setSheetFetchStatus('error');
       });
+  }, [adminSheetUrl]);
+
+  React.useEffect(() => {
+    doAutoFetch();
+    // Refresh every 5 minutes to keep funnel up to date with live sheet entries
+    const interval = setInterval(doAutoFetch, 5 * 60 * 1000);
+    return () => clearInterval(interval);
   }, [adminSheetUrl]);
 
   // Export Demos to CSV
@@ -872,9 +985,27 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
   if (cleanView) {
     let titleText = "Demo Fixed For Today Funnel";
     let subtitleText = "Demos scheduled to be conducted on this date across all 4 courses (Mechanical, Civil, MERN Stack, Digital Marketing)";
-    if (filterMode === 'bookedDate') {
-      titleText = "Demo Booking Funnel";
-      subtitleText = "Demos fixed by telecallers/advisors calling on this date (across all 4 courses, regardless of scheduled demo date)";
+    if (filterMode === 'demoDate') {
+      if (selectedDate === 'ALL') {
+        titleText = "Demo Scheduled Funnel (All Dates / எல்லா தேதிகளும்)";
+        subtitleText = "All demos scheduled to be conducted across all dates from synced Google Sheet";
+      } else if (selectedDate === getTodayDateStr()) {
+        titleText = "Demo Fixed For Today Funnel (இன்று)";
+        subtitleText = `Demos scheduled to be conducted today (${getFormattedDateLabel(selectedDate)}) across all 4 courses from Google Sheet`;
+      } else if (selectedDate === getTomorrowDateStr()) {
+        titleText = "Demo Scheduled For Tomorrow Funnel (நாளை)";
+        subtitleText = `Demos scheduled to be conducted tomorrow (${getFormattedDateLabel(selectedDate)}) across all 4 courses from Google Sheet`;
+      } else {
+        titleText = `Demo Scheduled Funnel (${getFormattedDateLabel(selectedDate)})`;
+        subtitleText = `Demos scheduled to be conducted on ${getFormattedDateLabel(selectedDate)} across all 4 courses from Google Sheet`;
+      }
+    } else if (filterMode === 'bookedDate') {
+      titleText = selectedDate === 'ALL'
+        ? "Demo Booking Funnel (Overall Till Date / இதுவரை மொத்தம்)"
+        : `Demo Booking Funnel (${getFormattedDateLabel(selectedDate)})`;
+      subtitleText = selectedDate === 'ALL'
+        ? "Overall demos fixed by telecallers/advisors calling till date across all 4 courses, from Google Sheet (இதுவரை மொத்தம்)"
+        : `Demos fixed by telecallers/advisors calling on ${getFormattedDateLabel(selectedDate)} (across all 4 courses)`;
     } else if (filterMode === 'conducted') {
       titleText = selectedDate === 'ALL'
         ? "Demo Conducted Funnel (Overall Till Date / இதுவரை மொத்தம்)"
@@ -886,7 +1017,15 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
 
     const isBookingMode = filterMode === 'bookedDate';
     const isConductedMode = filterMode === 'conducted';
-    const modeLabel = isBookingMode ? 'Fixed via Calling' : (isConductedMode ? 'Completed' : 'To Conduct Today');
+    const modeLabel = isBookingMode
+      ? 'Fixed via Calling'
+      : (isConductedMode
+          ? 'Completed'
+          : (selectedDate === getTodayDateStr()
+              ? 'To Conduct Today'
+              : (selectedDate === getTomorrowDateStr()
+                  ? 'To Conduct Tomorrow'
+                  : 'Scheduled')));
 
     return (
       <div className="demo-analytics-container" style={{ padding: '1.5rem', background: 'transparent' }}>
@@ -895,57 +1034,181 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
           <div>
             <h2 style={{ fontSize: '1.6rem', fontWeight: '800', color: '#0f172a', margin: 0 }}>{titleText}</h2>
             <p style={{ fontSize: '0.875rem', color: '#64748b', marginTop: '0.25rem', marginBottom: 0 }}>{subtitleText}</p>
+            {/* Live Google Sheet Status Badge */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                background: sheetFetchStatus === 'loading' ? '#fef3c7' : (sheetFetchStatus === 'error' ? '#fee2e2' : (liveSheetLoaded ? '#dcfce7' : '#f1f5f9')),
+                color: sheetFetchStatus === 'loading' ? '#92400e' : (sheetFetchStatus === 'error' ? '#dc2626' : (liveSheetLoaded ? '#15803d' : '#64748b')),
+                border: `1px solid ${sheetFetchStatus === 'loading' ? '#fcd34d' : (sheetFetchStatus === 'error' ? '#fca5a5' : (liveSheetLoaded ? '#86efac' : '#cbd5e1'))}`,
+                borderRadius: '9999px',
+                padding: '0.2rem 0.65rem',
+                fontSize: '0.75rem',
+                fontWeight: '700'
+              }}>
+                <span style={{
+                  width: '7px', height: '7px', borderRadius: '50%',
+                  background: sheetFetchStatus === 'loading' ? '#f59e0b' : (sheetFetchStatus === 'error' ? '#ef4444' : (liveSheetLoaded ? '#22c55e' : '#94a3b8')),
+                  display: 'inline-block',
+                  animation: sheetFetchStatus === 'loading' ? 'pulse 1s infinite' : 'none'
+                }} />
+                {sheetFetchStatus === 'loading' ? 'Fetching from Google Sheet...' :
+                  sheetFetchStatus === 'error' ? 'Sheet Fetch Error — Retry' :
+                  liveSheetLoaded ? `✅ Live Google Sheet Data — Last synced: ${sheetLastFetchedAt ? new Date(sheetLastFetchedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : 'Just now'}` :
+                  'Demo data (loading from sheet...)'}
+              </div>
+              <button
+                type="button"
+                onClick={doAutoFetch}
+                disabled={sheetFetchStatus === 'loading'}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                  background: 'transparent', border: '1px solid #cbd5e1',
+                  borderRadius: '9999px', padding: '0.2rem 0.65rem',
+                  fontSize: '0.75rem', fontWeight: '700', color: '#475569',
+                  cursor: sheetFetchStatus === 'loading' ? 'not-allowed' : 'pointer',
+                  opacity: sheetFetchStatus === 'loading' ? 0.6 : 1
+                }}
+              >
+                🔄 Refresh Sheet
+              </button>
+            </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-            {isConductedMode && (
-              <div style={{ display: 'flex', background: '#e2e8f0', padding: '0.25rem', borderRadius: '0.5rem', gap: '0.25rem' }}>
-                <button
-                  type="button"
-                  onClick={() => setSelectedDate('ALL')}
-                  style={{
-                    border: 'none',
-                    padding: '0.35rem 0.75rem',
-                    borderRadius: '0.375rem',
-                    fontSize: '0.8rem',
-                    fontWeight: '700',
-                    cursor: 'pointer',
-                    background: selectedDate === 'ALL' ? '#1e293b' : 'transparent',
-                    color: selectedDate === 'ALL' ? '#ffffff' : '#475569',
-                    transition: 'all 0.2s'
-                  }}
-                >
-                  🏆 Overall Till Date (இதுவரை)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedDate(getTodayDateStr())}
-                  style={{
-                    border: 'none',
-                    padding: '0.35rem 0.75rem',
-                    borderRadius: '0.375rem',
-                    fontSize: '0.8rem',
-                    fontWeight: '700',
-                    cursor: 'pointer',
-                    background: selectedDate === getTodayDateStr() ? '#1e293b' : 'transparent',
-                    color: selectedDate === getTodayDateStr() ? '#ffffff' : '#475569',
-                    transition: 'all 0.2s'
-                  }}
-                >
-                  📅 Today Only (இன்று)
-                </button>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+              {filterMode === 'demoDate' && (
+                <div style={{ display: 'flex', background: '#e2e8f0', padding: '0.25rem', borderRadius: '0.5rem', gap: '0.25rem', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDate(getTodayDateStr())}
+                    style={{
+                      border: 'none',
+                      padding: '0.35rem 0.75rem',
+                      borderRadius: '0.375rem',
+                      fontSize: '0.8rem',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      background: selectedDate === getTodayDateStr() ? '#1e293b' : 'transparent',
+                      color: selectedDate === getTodayDateStr() ? '#ffffff' : '#475569',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    📅 Today (இன்று)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDate(getTomorrowDateStr())}
+                    style={{
+                      border: 'none',
+                      padding: '0.35rem 0.75rem',
+                      borderRadius: '0.375rem',
+                      fontSize: '0.8rem',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      background: selectedDate === getTomorrowDateStr() ? '#1e293b' : 'transparent',
+                      color: selectedDate === getTomorrowDateStr() ? '#ffffff' : '#475569',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    📅 Tomorrow (நாளை)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDate('ALL')}
+                    style={{
+                      border: 'none',
+                      padding: '0.35rem 0.75rem',
+                      borderRadius: '0.375rem',
+                      fontSize: '0.8rem',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      background: selectedDate === 'ALL' ? '#1e293b' : 'transparent',
+                      color: selectedDate === 'ALL' ? '#ffffff' : '#475569',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    🏆 All Dates (எல்லா தேதிகளும்)
+                  </button>
+                </div>
+              )}
+
+              {(isConductedMode || isBookingMode) && (
+                <div style={{ display: 'flex', background: '#e2e8f0', padding: '0.25rem', borderRadius: '0.5rem', gap: '0.25rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDate('ALL')}
+                    style={{
+                      border: 'none',
+                      padding: '0.35rem 0.75rem',
+                      borderRadius: '0.375rem',
+                      fontSize: '0.8rem',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      background: selectedDate === 'ALL' ? '#1e293b' : 'transparent',
+                      color: selectedDate === 'ALL' ? '#ffffff' : '#475569',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    🏆 Overall Till Date (இதுவரை)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDate(getTodayDateStr())}
+                    style={{
+                      border: 'none',
+                      padding: '0.35rem 0.75rem',
+                      borderRadius: '0.375rem',
+                      fontSize: '0.8rem',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      background: selectedDate === getTodayDateStr() ? '#1e293b' : 'transparent',
+                      color: selectedDate === getTodayDateStr() ? '#ffffff' : '#475569',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    📅 Today Only (இன்று)
+                  </button>
+                </div>
+              )}
+
+              <div style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '0.5rem', padding: '0.4rem 0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+                <Calendar size={18} color="#475569" />
+                <input
+                  type="date"
+                  style={{ border: 'none', outline: 'none', background: 'transparent', color: '#334155', fontWeight: '600' }}
+                  value={selectedDate === 'ALL' ? '' : selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value || 'ALL')}
+                />
+              </div>
+            </div>
+
+            {/* Quick date pills for upcoming scheduled demos */}
+            {filterMode === 'demoDate' && upcomingDates.length > 0 && (
+              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-end' }}>
+                <span style={{ fontSize: '0.72rem', fontWeight: '700', color: '#64748b' }}>Quick Dates:</span>
+                {upcomingDates.slice(0, 6).map((item) => (
+                  <button
+                    key={item.date}
+                    type="button"
+                    onClick={() => setSelectedDate(item.date)}
+                    style={{
+                      background: selectedDate === item.date ? '#2563eb' : '#ffffff',
+                      color: selectedDate === item.date ? '#ffffff' : '#334155',
+                      border: `1px solid ${selectedDate === item.date ? '#2563eb' : '#cbd5e1'}`,
+                      borderRadius: '9999px',
+                      padding: '0.15rem 0.55rem',
+                      fontSize: '0.72rem',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s'
+                    }}
+                  >
+                    {item.label} ({item.count})
+                  </button>
+                ))}
               </div>
             )}
-
-            <div style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '0.5rem', padding: '0.4rem 0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
-              <Calendar size={18} color="#475569" />
-              <input
-                type="date"
-                style={{ border: 'none', outline: 'none', background: 'transparent', color: '#334155', fontWeight: '600' }}
-                value={selectedDate === 'ALL' ? '' : selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value || 'ALL')}
-              />
-            </div>
           </div>
         </div>
 
@@ -967,7 +1230,15 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
             <span style={{ fontSize: '0.8rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#64748b' }}>
               {isConductedMode
                 ? (selectedDate === 'ALL' ? 'Total Demos Conducted Till Date (இதுவரை மொத்தம்)' : 'Total Demos Conducted on Selected Date')
-                : (isBookingMode ? 'Total Demos Fixed via Calling' : 'Total Demos Scheduled to Conduct Today')}
+                : (isBookingMode
+                  ? (selectedDate === 'ALL' ? 'Total Demos Fixed via Calling Till Date (இதுவரை மொத்தம்)' : 'Total Demos Fixed via Calling on Selected Date')
+                  : (selectedDate === 'ALL'
+                      ? 'Total Demos Scheduled Across All Dates (எல்லா தேதிகளும்)'
+                      : (selectedDate === getTodayDateStr()
+                          ? 'Total Demos Scheduled to Conduct Today (இன்று)'
+                          : (selectedDate === getTomorrowDateStr()
+                              ? 'Total Demos Scheduled to Conduct Tomorrow (நாளை)'
+                              : `Total Demos Scheduled to Conduct on ${getFormattedDateLabel(selectedDate)}`))))}
             </span>
             <div style={{ fontSize: '1.75rem', fontWeight: '800', color: '#0f172a', marginTop: '0.1rem' }}>
               {dateDemos.length} <span style={{ fontSize: '0.95rem', fontWeight: '600', color: '#64748b' }}>{isConductedMode ? 'Completed Demos' : 'Demos'}</span>
