@@ -86,6 +86,15 @@ export const normalizeExcelDemoRow = (row, index) => {
   const parseToIso = (rawDate) => {
     if (!rawDate) return '';
     const str = String(rawDate).trim();
+    if (str.includes('T')) {
+      const dt = new Date(str);
+      if (!isNaN(dt.getTime())) {
+        const yr = dt.getFullYear();
+        const mo = String(dt.getMonth() + 1).padStart(2, '0');
+        const da = String(dt.getDate()).padStart(2, '0');
+        return `${yr}-${mo}-${da}`;
+      }
+    }
     const datePart = str.split('T')[0].split(' ')[0];
     if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(datePart)) {
       const [y, m, d] = datePart.split('-');
