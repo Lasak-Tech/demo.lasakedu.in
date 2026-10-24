@@ -239,13 +239,37 @@ export default function App() {
     switch (activeTab) {
       case 'demo-analytics':
       case 'demo-fixed-today':
-        return <DemoAnalyticsDashboard currentUser={currentUser} filterMode="demoDate" cleanView={true} />;
+        return (
+          <DemoAnalyticsDashboard
+            key="demo-fixed-today"
+            currentUser={currentUser}
+            filterMode="demoDate"
+            cleanView={true}
+            defaultDate={new Date().toISOString().split('T')[0]}
+          />
+        );
 
       case 'demo-booking-funnel':
-        return <DemoAnalyticsDashboard currentUser={currentUser} filterMode="bookedDate" cleanView={true} />;
+        return (
+          <DemoAnalyticsDashboard
+            key="demo-booking-funnel"
+            currentUser={currentUser}
+            filterMode="bookedDate"
+            cleanView={true}
+            defaultDate="ALL"
+          />
+        );
 
       case 'demo-conducted':
-        return <DemoAnalyticsDashboard currentUser={currentUser} filterMode="conducted" cleanView={true} defaultDate="ALL" />;
+        return (
+          <DemoAnalyticsDashboard
+            key="demo-conducted"
+            currentUser={currentUser}
+            filterMode="conducted"
+            cleanView={true}
+            defaultDate="ALL"
+          />
+        );
 
       case 'time-slots':
         return <DemoAnalyticsDashboard currentUser={currentUser} filterMode="timetable" showOnlyTimetable={true} />;
