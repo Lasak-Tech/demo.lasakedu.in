@@ -881,95 +881,163 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
       return DEMO_EMPLOYEES[index % DEMO_EMPLOYEES.length];
     };
 
-    // Loop through all subsheets to parse authentic student lead & booking records
-    Object.keys(sheetData.subSheets).forEach((tabKey) => {
-      const sub = sheetData.subSheets[tabKey];
-      if (!sub || !sub.data || !Array.isArray(sub.data)) return;
-      if (tabKey === 'Bookings & Demo Done') return; // Skip non-student matrix summary tab to avoid corrupted counts
+    // Helper for flexible case-insensitive cell property lookup
+    const getFlexibleVal = (rowObj, ...keys) => {
+      if (!rowObj || typeof rowObj !== 'object') return '';
+      const rowKeys = Object.keys(rowObj);
+      for (const k of keys) {
+        if (rowObj[k] !== undefined && rowObj[k] !== null && String(rowObj[k]).trim() !== '') {
+          return String(rowObj[k]).trim();
+        }
+      }
+      const cleanKeys = keys.map((k) => k.toLowerCase().replace(/[^a-z0-9]/g, ''));
+      for (const rk of rowKeys) {
+        const cleanRk = rk.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (cleanKeys.includes(cleanRk)) {
+          const val = rowObj[rk];
+          if (val !== undefined && val !== null && String(val).trim() !== '') {
+            return String(val).trim();
+          }
+        }
+      }
+      return '';
+    };
 
-      // Helper for flexible case-insensitive cell property lookup
-      const getFlexibleVal = (rowObj, ...keys) => {
-          if (!rowObj || typeof rowObj !== 'object') return '';
-          const rowKeys = Object.keys(rowObj);
-          for (const k of keys) {
-            if (rowObj[k] !== undefined && rowObj[k] !== null && String(rowObj[k]).trim() !== '') {
-              return String(rowObj[k]).trim();
-            }
-          }
-          const cleanKeys = keys.map((k) => k.toLowerCase().replace(/[^a-z0-9]/g, ''));
-          for (const rk of rowKeys) {
-            const cleanRk = rk.toLowerCase().replace(/[^a-z0-9]/g, '');
-            if (cleanKeys.includes(cleanRk)) {
-              const val = rowObj[rk];
-              if (val !== undefined && val !== null && String(val).trim() !== '') {
-                return String(val).trim();
-              }
-            }
-          }
-          return '';
+    const cleanPhone = (p) => String(p || '').replace(/[^0-9]/g, '').slice(-10);
+    const cleanEmail = (e) => String(e || '').toLowerCase().trim();
+    const cleanName = (n) => String(n || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    // 1. Build lookup index for Conduction Responses (to link conduction feedback to bookings without duplicate records)
+    const condIndex = new Map();
+    const condSub = sheetData.subSheets['Demo Conduction Responses'];
+    if (condSub && Array.isArray(condSub.data)) {
+      condSub.data.forEach((row, idx) => {
+        const p = cleanPhone(getFlexibleVal(row, 'Student Phone', 'Phone', 'Mobile'));
+        const e = cleanEmail(getFlexibleVal(row, 'Student Email', 'Email'));
+        const n = cleanName(getFlexibleVal(row, 'Student Name', 'Name', 'Candidate'));
+        const item = {
+          row,
+          idx,
+          conductor: getFlexibleVal(row, 'Demo Conducted By', 'Conducted By', 'Trainer') || '',
+          feedback: getFlexibleVal(row, 'Manager Feedback', 'Feedback', 'Comments') || '',
+          comments: getFlexibleVal(row, 'Comments', 'Notes') || '',
+          timestamp: getFlexibleVal(row, 'Timestamp', 'Date') || ''
         };
+        if (p && p.length >= 7) condIndex.set('p:' + p, item);
+        if (e && e.includes('@')) condIndex.set('e:' + e, item);
+        if (n && n.length >= 3) condIndex.set('n:' + n, item);
+      });
+    }
 
-        // Parse standard row sheets (Demo Booking Responses, Demo Conduction Responses, Revenue Responses, Student Data, etc.)
-        sub.data.forEach((row, index) => {
-          const studentName = getFlexibleVal(row, 'Student Name', 'Prospect Name', 'Student / Employee Name', 'Name', 'Candidate', 'Full Name', 'Contact Person', 'StudentName', 'Prospect', 'Student', 'Employee Name');
-          const studentEmail = getFlexibleVal(row, 'Student Mail ID', 'Student Email', 'Email', 'Mail', 'Email ID', 'StudentMail');
-          const phone = getFlexibleVal(row, 'Student Mobile Number', 'Student Phone', 'Phone', 'Mobile', 'Contact', 'Phone Number');
-          const rawDemoDate = getFlexibleVal(row, 'Demo Date', 'Date of Demo', 'Scheduled Date', 'Date');
-          const rawTimestamp = getFlexibleVal(row, 'Timestamp', 'Created At', 'Booking Date', 'Created Date');
+    // 2. Process Demo Booking Responses (authoritative master roster for demo bookings)
+    const seenStudentKeys = new Set();
+    const bookingSub = sheetData.subSheets['Demo Booking Responses'];
+    const bookingRows = (bookingSub && Array.isArray(bookingSub.data)) ? bookingSub.data : [];
 
-          if (!studentName && !studentEmail && !phone && !rawDemoDate && !rawTimestamp) return;
+    bookingRows.forEach((row, index) => {
+      const studentName = getFlexibleVal(row, 'Student Name', 'Prospect Name', 'Student / Employee Name', 'Name', 'Candidate', 'Full Name', 'Contact Person');
+      const studentEmail = getFlexibleVal(row, 'Student Mail ID', 'Student Email', 'Email', 'Mail', 'Email ID');
+      const phone = getFlexibleVal(row, 'Student Mobile Number', 'Student Phone', 'Phone', 'Mobile', 'Contact');
+      const rawDemoDate = getFlexibleVal(row, 'Demo Date', 'Date of Demo', 'Scheduled Date', 'Date');
+      const rawTimestamp = getFlexibleVal(row, 'Timestamp', 'Created At', 'Booking Date', 'Created Date');
 
-          const normDate = rawDemoDate ? normalizeDateStr(rawDemoDate) : (rawTimestamp ? normalizeDateStr(rawTimestamp) : getTodayDateStr());
-          const normBookedDate = rawTimestamp ? normalizeDateStr(rawTimestamp) : normDate;
-          const normTime = normalizeTime(getFlexibleVal(row, 'Demo Time', 'Time Slot', 'Time', 'Slot', 'Timestamp'), index);
-          const emp = resolveEmployee(row, index);
-          const courseKey = resolveCourseKey(row, index);
+      if (!studentName && !studentEmail && !phone && !rawDemoDate && !rawTimestamp) return;
 
-          dateCounts[normDate] = (dateCounts[normDate] || 0) + 1;
-          if (normBookedDate) {
-            dateCounts[normBookedDate] = (dateCounts[normBookedDate] || 0) + 1;
-          }
+      const pKey = cleanPhone(phone);
+      const eKey = cleanEmail(studentEmail);
+      const nKey = cleanName(studentName);
 
-          const feeStr = getFlexibleVal(row, 'Course Fees', 'Price Pitched', 'Down Payment /Part Payment Value', 'Fees', 'Price') || '10,000';
-          const notes = getFlexibleVal(row, 'Lead Source', 'Comments', 'Notes', 'Remarks', 'Source') || `Synced from Google Sheet (${tabKey})`;
+      // Create unique student key to prevent intra-sheet duplicates
+      const uniqueStudentKey = (pKey && pKey.length >= 7) ? 'p:' + pKey : ((eKey && eKey.includes('@')) ? 'e:' + eKey : ((nKey && nKey.length >= 3) ? 'n:' + nKey : `idx:${index}`));
+      if (seenStudentKeys.has(uniqueStudentKey)) return;
+      seenStudentKeys.add(uniqueStudentKey);
 
-          const rawStatus = getFlexibleVal(row, 'Status', 'Demo Status', 'Attendance', 'Conduction Status');
-          let status = 'Fixed';
-          // Check for 'not conducted' / cancelled FIRST so 'Demo Not Conducted' is not mistaken as 'conducted'
-          if (/not\s*conducted|cancel|absent|not\s*done|did\s*not\s*attend/i.test(rawStatus)) {
-            status = 'Cancelled';
-          } else if (tabKey.includes('Conduction') || tabKey.includes('Revenue') || /conducted|done|completed|attended/i.test(rawStatus)) {
-            status = 'Conducted';
-          }
+      const normDate = rawDemoDate ? normalizeDate(rawDemoDate) : (rawTimestamp ? normalizeDate(rawTimestamp) : getTodayDateStr());
+      const normBookedDate = rawTimestamp ? normalizeDate(rawTimestamp) : normDate;
+      const normTime = normalizeTime(getFlexibleVal(row, 'Demo Time', 'Time Slot', 'Time', 'Slot'), index);
+      const emp = resolveEmployee(row, index);
+      const courseKey = resolveCourseKey(row, index);
 
-          allImportedDemos.push({
-            id: `sch-gsheet-${tabKey.replace(/\s+/g, '')}-${index}`,
-            date: normDate,
-            bookedDate: normBookedDate,
-            timeSlot: normTime,
-            employeeId: emp.id,
-            employeeName: emp.name,
-            courseKey: courseKey,
-            prospectName: studentName || studentEmail || `Student Record #${index + 1}`,
-            prospectPhone: phone || '+91 98000 00000',
-            status: status,
-            sourceTab: tabKey,
-            notes: notes.startsWith('Lead:') ? notes : `Lead: ${notes} | Fees: ₹${feeStr}`
-          });
-        });
+      // Match against conduction response
+      const condMatch = (pKey && condIndex.get('p:' + pKey)) || (eKey && condIndex.get('e:' + eKey)) || (nKey && condIndex.get('n:' + nKey));
+
+      const rawStatus = getFlexibleVal(row, 'Status', 'Demo Status', 'Attendance', 'Conduction Status');
+      let status = 'Fixed';
+      if (condMatch || /done|completed|attended/i.test(rawStatus)) {
+        status = 'Conducted';
+      } else if (/not\s*conducted|cancel|absent/i.test(rawStatus)) {
+        status = 'Cancelled';
+      }
+
+      const feeStr = getFlexibleVal(row, 'Course Fees', 'Price Pitched', 'Fees', 'Price') || '65,000';
+      const baseComments = getFlexibleVal(row, 'Comments', 'Notes', 'Remarks', 'Lead Source') || '';
+      const feedbackStr = condMatch?.feedback ? ` | Feedback: ${condMatch.feedback}` : '';
+
+      allImportedDemos.push({
+        id: `sch-booking-${index}`,
+        date: normDate,
+        bookedDate: normBookedDate,
+        timeSlot: normTime,
+        employeeId: emp.id,
+        employeeName: emp.name,
+        employeeEmail: emp.email || '',
+        courseKey: courseKey,
+        prospectName: studentName || studentEmail || `Student Record #${index + 1}`,
+        prospectPhone: phone || '+91 98000 00000',
+        status: status,
+        sourceTab: 'Demo Booking Responses',
+        notes: baseComments ? `${baseComments}${feedbackStr} | Fees: ₹${feeStr}` : `Fees: ₹${feeStr}${feedbackStr}`
+      });
     });
 
-    if (allImportedDemos.length > 0) {
-      setScheduledDemos((prev) => {
-        // Keep only manually added demos (custom entries, not sheet or mock data)
-        const manualDemos = (prev || []).filter((d) =>
-          d.id.startsWith('sch-custom-') || d.id.startsWith('sch-excel-')
-        );
-        const manualIds = new Set(manualDemos.map((d) => d.id));
-        const uniqueManual = manualDemos.filter((d) => !manualIds.has(d.id));
-        // Real sheet data takes full priority — NO mock data injection
-        return [...allImportedDemos, ...uniqueManual];
+    // 3. Add direct conduction entries (e.g. walk-ins conducted without a pre-booking record)
+    if (condSub && Array.isArray(condSub.data)) {
+      condSub.data.forEach((row, index) => {
+        const pKey = cleanPhone(getFlexibleVal(row, 'Student Phone', 'Phone', 'Mobile'));
+        const eKey = cleanEmail(getFlexibleVal(row, 'Student Email', 'Email'));
+        const nKey = cleanName(getFlexibleVal(row, 'Student Name', 'Name', 'Candidate'));
+
+        const isAlreadyAdded = (pKey && seenStudentKeys.has('p:' + pKey)) ||
+          (eKey && seenStudentKeys.has('e:' + eKey)) ||
+          (nKey && seenStudentKeys.has('n:' + nKey));
+
+        if (!isAlreadyAdded) {
+          const studentName = getFlexibleVal(row, 'Student Name', 'Candidate', 'Name');
+          const studentEmail = getFlexibleVal(row, 'Student Email', 'Email');
+          const phone = getFlexibleVal(row, 'Student Phone', 'Phone');
+          const rawDate = getFlexibleVal(row, 'Timestamp', 'Date');
+          if (!studentName && !studentEmail && !phone) return;
+
+          const uniqueKey = (pKey && pKey.length >= 7) ? 'p:' + pKey : ((eKey && eKey.includes('@')) ? 'e:' + eKey : ((nKey && nKey.length >= 3) ? 'n:' + nKey : `cond:${index}`));
+          seenStudentKeys.add(uniqueKey);
+
+          const normDate = rawDate ? normalizeDate(rawDate) : getTodayDateStr();
+          const emp = resolveEmployee(row, index);
+          const courseKey = resolveCourseKey(row, index);
+          const feedback = getFlexibleVal(row, 'Manager Feedback', 'Comments', 'Notes') || 'Directly conducted';
+
+          allImportedDemos.push({
+            id: `sch-cond-direct-${index}`,
+            date: normDate,
+            bookedDate: normDate,
+            timeSlot: '11:00 AM - 12:00 PM',
+            employeeId: emp.id,
+            employeeName: emp.name,
+            employeeEmail: emp.email || '',
+            courseKey: courseKey,
+            prospectName: studentName || studentEmail || `Student #${index + 1}`,
+            prospectPhone: phone || '+91 98000 00000',
+            status: 'Conducted',
+            sourceTab: 'Demo Conduction Responses',
+            notes: `Feedback: ${feedback}`
+          });
+        }
       });
+    }
+
+    if (allImportedDemos.length > 0) {
+      // Cleanly replace with fresh live data — any edits, deletes, or additions in sheet directly reflect!
+      setScheduledDemos(allImportedDemos);
 
       // Mark live sheet as loaded so mock data is never re-injected
       setLiveSheetLoaded(true);
