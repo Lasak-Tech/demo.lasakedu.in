@@ -1002,30 +1002,22 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
   };
 
   if (cleanView) {
-    let titleText = "Demo Fixed For Today Funnel";
-    let subtitleText = "Demos scheduled to be conducted on this date across all 4 courses (Mechanical, Civil, MERN Stack, Digital Marketing)";
-    if (filterMode === 'demoDate') {
-      if (selectedDate === 'ALL') {
-        titleText = "Demo Scheduled Funnel (All Dates / எல்லா தேதிகளும்)";
-        subtitleText = "All demos scheduled to be conducted across all dates from synced Google Sheet";
-      } else if (selectedDate === getTodayDateStr()) {
-        titleText = "Demo Fixed For Today Funnel (இன்று)";
-        subtitleText = `Demos scheduled to be conducted today (${getFormattedDateLabel(selectedDate)}) across all 4 courses from Google Sheet`;
-      } else if (selectedDate === getTomorrowDateStr()) {
-        titleText = "Demo Scheduled For Tomorrow Funnel (நாளை)";
-        subtitleText = `Demos scheduled to be conducted tomorrow (${getFormattedDateLabel(selectedDate)}) across all 4 courses from Google Sheet`;
-      } else {
-        titleText = `Demo Scheduled Funnel (${getFormattedDateLabel(selectedDate)})`;
-        subtitleText = `Demos scheduled to be conducted on ${getFormattedDateLabel(selectedDate)} across all 4 courses from Google Sheet`;
-      }
-    } else if (filterMode === 'bookedDate') {
+    const isBookingMode = filterMode === 'bookedDate';
+    const isConductedMode = filterMode === 'conducted';
+
+    // Simple title: show the selected date's demo count
+    let titleText = `Demo Schedule — ${getFormattedDateLabel(selectedDate)}`;
+    let subtitleText = `${getFormattedDateLabel(selectedDate)} அன்று conduct ஆக உள்ள demos — Google Sheet data live update`;
+    const modeLabel = 'Demos';
+
+    if (isBookingMode) {
       titleText = selectedDate === 'ALL'
         ? "Demo Booking Funnel (Overall Till Date / இதுவரை மொத்தம்)"
         : `Demo Booking Funnel (${getFormattedDateLabel(selectedDate)})`;
       subtitleText = selectedDate === 'ALL'
         ? "Overall demos fixed by telecallers/advisors calling till date across all 4 courses, from Google Sheet (இதுவரை மொத்தம்)"
         : `Demos fixed by telecallers/advisors calling on ${getFormattedDateLabel(selectedDate)} (across all 4 courses)`;
-    } else if (filterMode === 'conducted') {
+    } else if (isConductedMode) {
       titleText = selectedDate === 'ALL'
         ? "Demo Conducted Funnel (Overall Till Date / இதுவரை மொத்தம்)"
         : `Demo Conducted Funnel (${getFormattedDateLabel(selectedDate)})`;
@@ -1033,18 +1025,6 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
         ? "Total demos successfully conducted and completed till date across all courses (Mechanical, Civil, MERN, Digital Marketing)"
         : `Demos successfully completed and conducted on ${getFormattedDateLabel(selectedDate)}`;
     }
-
-    const isBookingMode = filterMode === 'bookedDate';
-    const isConductedMode = filterMode === 'conducted';
-    const modeLabel = isBookingMode
-      ? 'Fixed via Calling'
-      : (isConductedMode
-          ? 'Completed'
-          : (selectedDate === getTodayDateStr()
-              ? 'To Conduct Today'
-              : (selectedDate === getTomorrowDateStr()
-                  ? 'To Conduct Tomorrow'
-                  : 'Scheduled')));
 
     return (
       <div className="demo-analytics-container" style={{ padding: '1.5rem', background: 'transparent' }}>
@@ -1094,64 +1074,9 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
             </div>
           </div>
 
+          {/* Only Date Picker — no Today/Tomorrow/All Dates buttons */}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-              {filterMode === 'demoDate' && (
-                <div style={{ display: 'flex', background: '#e2e8f0', padding: '0.25rem', borderRadius: '0.5rem', gap: '0.25rem', flexWrap: 'wrap' }}>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDate(getTodayDateStr())}
-                    style={{
-                      border: 'none',
-                      padding: '0.35rem 0.75rem',
-                      borderRadius: '0.375rem',
-                      fontSize: '0.8rem',
-                      fontWeight: '700',
-                      cursor: 'pointer',
-                      background: selectedDate === getTodayDateStr() ? '#1e293b' : 'transparent',
-                      color: selectedDate === getTodayDateStr() ? '#ffffff' : '#475569',
-                      transition: 'all 0.2s'
-                    }}
-                  >
-                    📅 Today (இன்று)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDate(getTomorrowDateStr())}
-                    style={{
-                      border: 'none',
-                      padding: '0.35rem 0.75rem',
-                      borderRadius: '0.375rem',
-                      fontSize: '0.8rem',
-                      fontWeight: '700',
-                      cursor: 'pointer',
-                      background: selectedDate === getTomorrowDateStr() ? '#1e293b' : 'transparent',
-                      color: selectedDate === getTomorrowDateStr() ? '#ffffff' : '#475569',
-                      transition: 'all 0.2s'
-                    }}
-                  >
-                    📅 Tomorrow (நாளை)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDate('ALL')}
-                    style={{
-                      border: 'none',
-                      padding: '0.35rem 0.75rem',
-                      borderRadius: '0.375rem',
-                      fontSize: '0.8rem',
-                      fontWeight: '700',
-                      cursor: 'pointer',
-                      background: selectedDate === 'ALL' ? '#1e293b' : 'transparent',
-                      color: selectedDate === 'ALL' ? '#ffffff' : '#475569',
-                      transition: 'all 0.2s'
-                    }}
-                  >
-                    🏆 All Dates (எல்லா தேதிகளும்)
-                  </button>
-                </div>
-              )}
-
               {(isConductedMode || isBookingMode) && (
                 <div style={{ display: 'flex', background: '#e2e8f0', padding: '0.25rem', borderRadius: '0.5rem', gap: '0.25rem' }}>
                   <button
@@ -1197,37 +1122,10 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
                   type="date"
                   style={{ border: 'none', outline: 'none', background: 'transparent', color: '#334155', fontWeight: '600' }}
                   value={selectedDate === 'ALL' ? '' : selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value || 'ALL')}
+                  onChange={(e) => setSelectedDate(e.target.value || getTodayDateStr())}
                 />
               </div>
             </div>
-
-            {/* Quick date pills for upcoming scheduled demos */}
-            {filterMode === 'demoDate' && upcomingDates.length > 0 && (
-              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-end' }}>
-                <span style={{ fontSize: '0.72rem', fontWeight: '700', color: '#64748b' }}>Quick Dates:</span>
-                {upcomingDates.slice(0, 6).map((item) => (
-                  <button
-                    key={item.date}
-                    type="button"
-                    onClick={() => setSelectedDate(item.date)}
-                    style={{
-                      background: selectedDate === item.date ? '#2563eb' : '#ffffff',
-                      color: selectedDate === item.date ? '#ffffff' : '#334155',
-                      border: `1px solid ${selectedDate === item.date ? '#2563eb' : '#cbd5e1'}`,
-                      borderRadius: '9999px',
-                      padding: '0.15rem 0.55rem',
-                      fontSize: '0.72rem',
-                      fontWeight: '700',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s'
-                    }}
-                  >
-                    {item.label} ({item.count})
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
         </div>
 
