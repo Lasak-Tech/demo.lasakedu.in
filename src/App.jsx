@@ -275,7 +275,15 @@ export default function App() {
         return <DemoAnalyticsDashboard currentUser={currentUser} filterMode="timetable" showOnlyTimetable={true} />;
 
       case 'todays-funnel-report':
-        return <DemoAnalyticsDashboard currentUser={currentUser} filterMode="report" showOnlyReport={true} />;
+        return (
+          <DemoAnalyticsDashboard
+            key="todays-funnel-report"
+            currentUser={currentUser}
+            filterMode="report"
+            showOnlyReport={true}
+            defaultDate={new Date().toISOString().split('T')[0]}
+          />
+        );
 
       case 'employee':
         return <EmployeeEntryDashboard currentUser={currentUser} />;
