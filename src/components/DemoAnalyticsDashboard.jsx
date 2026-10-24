@@ -62,6 +62,8 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
 
   // Primary Dashboard View: 'master-records' (all 186 rows from Google Sheet) or 'timetable' (daily matrix & gauges)
   const [activeViewTab, setActiveViewTab] = useState('timetable');
+  // Status filter for conducted funnel table: 'all' | 'conducted' | 'cancelled'
+  const [conductedStatusFilter, setConductedStatusFilter] = useState('all');
 
   // On first mount: only seed mock data if no live Google Sheet data has been loaded yet
   React.useEffect(() => {
@@ -94,13 +96,14 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
 
   // One-time migration: clear old mock-polluted localStorage cache so fresh sheet data takes over
   React.useEffect(() => {
-    const migrationKey = 'lasak_demo_cache_v7_migrated'; // v7: force fresh sync of all 333/334 live sheet rows up to row 334
+    const migrationKey = 'lasak_demo_cache_v8_status_fix'; // v8: correctly separate Conducted vs Demo Not Conducted (Cancelled)
     if (!localStorage.getItem(migrationKey)) {
       // Purge old mixed/wrong-course-resolved data cache completely
       localStorage.removeItem('lasak_scheduled_demos');
       localStorage.removeItem('lasak_live_sheet_loaded');
       localStorage.removeItem('lasak_sheet_last_fetched');
       // Clear all previous migration flags too
+      localStorage.removeItem('lasak_demo_cache_v7_migrated');
       localStorage.removeItem('lasak_demo_cache_v6_migrated');
       localStorage.removeItem('lasak_demo_cache_v5_migrated');
       localStorage.removeItem('lasak_demo_cache_v4_migrated');
@@ -911,10 +914,11 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
 
           const rawStatus = getFlexibleVal(row, 'Status', 'Demo Status', 'Attendance', 'Conduction Status');
           let status = 'Fixed';
-          if (tabKey.includes('Conduction') || tabKey.includes('Revenue') || /conducted|done|completed|attended/i.test(rawStatus)) {
-            status = 'Conducted';
-          } else if (/cancel|absent/i.test(rawStatus)) {
+          // Check for 'not conducted' / cancelled FIRST so 'Demo Not Conducted' is not mistaken as 'conducted'
+          if (/not\s*conducted|cancel|absent|not\s*done|did\s*not\s*attend/i.test(rawStatus)) {
             status = 'Cancelled';
+          } else if (tabKey.includes('Conduction') || tabKey.includes('Revenue') || /conducted|done|completed|attended/i.test(rawStatus)) {
+            status = 'Conducted';
           }
 
           allImportedDemos.push({
@@ -1330,125 +1334,236 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
                 </div>
 
                 <div className="gauge-card-footer">
-                  <div className="gauge-footer-metric">
-                    <span className="f-label">Capacity Target</span>
-                    <span className="f-val">{course.target} Demos</span>
-                  </div>
-                  <div className="gauge-progress-bg">
-                    <div
-                      className="gauge-progress-bar"
-                      style={{
-                        width: `${Math.min(100, Math.round((course.count / course.target) * 100))}%`,
-                        backgroundColor: course.color
-                      }}
-                    />
-                  </div>
+                  {isConductedMode ? (
+                    <div style={{ marginTop: '0.25rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', fontWeight: '700' }}>
+                        <span style={{ color: '#15803d', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                          <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#22c55e' }} />
+                          Conducted: {course.count}
+                        </span>
+                        <span style={{ color: '#dc2626', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                          <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#ef4444' }} />
+                          Cancelled: {cancelledCourseStats[course.key] || 0}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.725rem', color: '#64748b' }}>
+                        <span>Total: <strong>{course.count + (cancelledCourseStats[course.key] || 0)}</strong></span>
+                        <span>Success Rate: <strong>{course.count + (cancelledCourseStats[course.key] || 0) > 0 ? Math.round((course.count / (course.count + (cancelledCourseStats[course.key] || 0))) * 100) : 0}%</strong></span>
+                      </div>
+                      <div className="gauge-progress-bg" style={{ height: '6px', background: '#fee2e2', borderRadius: '3px', overflow: 'hidden' }}>
+                        <div
+                          className="gauge-progress-bar"
+                          style={{
+                            width: `${course.count + (cancelledCourseStats[course.key] || 0) > 0 ? Math.round((course.count / (course.count + (cancelledCourseStats[course.key] || 0))) * 100) : 0}%`,
+                            backgroundColor: '#22c55e',
+                            height: '100%'
+                          }}
+                          title={`Conducted: ${course.count} | Cancelled: ${cancelledCourseStats[course.key] || 0}`}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="gauge-footer-metric">
+                        <span className="f-label">Capacity Target</span>
+                        <span className="f-val">{course.target} Demos</span>
+                      </div>
+                      <div className="gauge-progress-bg">
+                        <div
+                          className="gauge-progress-bar"
+                          style={{
+                            width: `${Math.min(100, Math.round((course.count / course.target) * 100))}%`,
+                            backgroundColor: course.color
+                          }}
+                        />
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             );
           })}
         </div>
 
-        {/* Detailed Booking Roster Table for Selected Calling Date */}
-        <div style={{ marginTop: '2.5rem', background: '#ffffff', borderRadius: '0.75rem', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-          <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <h3 style={{ fontSize: '1.05rem', fontWeight: '800', color: '#0f172a', margin: 0 }}>
-                {isConductedMode
-                  ? (selectedDate === 'ALL' ? 'All Conducted Demos Roster (Till Date / இதுவரை)' : 'Conducted Demo Records')
-                  : (filterMode === 'bookedDate' ? 'Calling & Booking Records' : 'Scheduled Demo Records')} ({dateDemos.length} Records)
-              </h3>
-              <p style={{ fontSize: '0.775rem', color: '#64748b', marginTop: '0.15rem', marginBottom: 0 }}>
-                {isConductedMode
-                  ? (selectedDate === 'ALL'
-                      ? 'Showing all demos successfully conducted and completed till date across Mechanical, Civil, MERN, and Digital Marketing'
-                      : `Showing demos conducted on ${getFormattedDateLabel(selectedDate)}`)
-                  : (filterMode === 'bookedDate'
-                      ? `Showing all demos fixed through calls made on ${getFormattedDateLabel(selectedDate)} (regardless of which date the demo takes place)`
-                      : `Showing demos scheduled for ${getFormattedDateLabel(selectedDate)}`)}
-              </p>
-            </div>
-          </div>
+        {/* Detailed Booking Roster Table for Selected Date */}
+        {(() => {
+          const displayTableDemos = isConductedMode
+            ? (conductedStatusFilter === 'conducted'
+                ? dateDemos
+                : (conductedStatusFilter === 'cancelled'
+                    ? cancelledDemos
+                    : [...dateDemos, ...cancelledDemos]))
+            : dateDemos;
 
-          <div style={{ overflowX: 'auto' }}>
-            <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                  <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '700', color: '#475569' }}>#</th>
-                  <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '700', color: '#475569' }}>Candidate</th>
-                  <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '700', color: '#475569' }}>Course</th>
-                  <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '700', color: '#475569' }}>Advisor / Telecaller</th>
-                  <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '700', color: '#475569' }}>Calling Date</th>
-                  <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '700', color: '#475569' }}>Demo Scheduled For</th>
-                  <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '700', color: '#475569' }}>Status</th>
-                  <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '700', color: '#475569' }}>Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dateDemos.length > 0 ? (
-                  dateDemos.map((demo, idx) => {
-                    const cInfo = DEMO_COURSES[demo.courseKey] || DEMO_COURSES.MECH;
-                    const isSameDate = demo.date === (demo.bookedDate || selectedDate);
+          return (
+            <div style={{ marginTop: '2.5rem', background: '#ffffff', borderRadius: '0.75rem', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+              <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+                <div>
+                  <h3 style={{ fontSize: '1.05rem', fontWeight: '800', color: '#0f172a', margin: 0 }}>
+                    {isConductedMode
+                      ? (selectedDate === 'ALL' ? 'Demo Conduction & Cancellation Records' : 'Demo Records')
+                      : (filterMode === 'bookedDate' ? 'Calling & Booking Records' : 'Scheduled Demo Records')} ({displayTableDemos.length} Records)
+                  </h3>
+                  <p style={{ fontSize: '0.775rem', color: '#64748b', marginTop: '0.15rem', marginBottom: 0 }}>
+                    {isConductedMode
+                      ? (selectedDate === 'ALL'
+                          ? 'Showing all demos conducted vs cancelled till date from Google Sheet across Mechanical, Civil, MERN, and Digital Marketing'
+                          : `Showing demo conduction status on ${getFormattedDateLabel(selectedDate)}`)
+                      : (filterMode === 'bookedDate'
+                          ? `Showing all demos fixed through calls made on ${getFormattedDateLabel(selectedDate)} (regardless of which date the demo takes place)`
+                          : `Showing demos scheduled for ${getFormattedDateLabel(selectedDate)}`)}
+                  </p>
+                </div>
 
-                    return (
-                      <tr key={demo.id || idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '0.75rem 1rem', fontSize: '0.8rem', color: '#94a3b8', fontWeight: '600' }}>{idx + 1}</td>
-                        <td style={{ padding: '0.75rem 1rem' }}>
-                          <div style={{ fontWeight: '700', color: '#0f172a', fontSize: '0.875rem' }}>{demo.prospectName}</div>
-                          <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{demo.prospectPhone}</div>
-                        </td>
-                        <td style={{ padding: '0.75rem 1rem' }}>
-                          <span style={{
-                            backgroundColor: cInfo.bgColor,
-                            color: cInfo.darkColor,
-                            border: `1px solid ${cInfo.borderColor}`,
-                            borderRadius: '0.375rem',
-                            padding: '0.2rem 0.5rem',
-                            fontSize: '0.75rem',
-                            fontWeight: '700'
-                          }}>
-                            {cInfo.name}
-                          </span>
-                        </td>
-                        <td style={{ padding: '0.75rem 1rem', fontSize: '0.85rem', fontWeight: '600', color: '#334155' }}>
-                          {demo.employeeName}
-                        </td>
-                        <td style={{ padding: '0.75rem 1rem', fontSize: '0.8rem', color: '#64748b' }}>
-                          {demo.bookedDate || demo.date}
-                        </td>
-                        <td style={{ padding: '0.75rem 1rem' }}>
-                          <div style={{ fontWeight: '700', color: '#0f172a', fontSize: '0.85rem' }}>
-                            {demo.date}
-                            {!isSameDate && (
-                              <span style={{ marginLeft: '0.4rem', fontSize: '0.7rem', padding: '0.1rem 0.35rem', background: '#e0f2fe', color: '#0369a1', borderRadius: '0.25rem', fontWeight: '700' }}>
-                                Future Slot
+                {/* Filter toggle buttons for Conducted vs Cancelled */}
+                {isConductedMode && (
+                  <div style={{ display: 'flex', gap: '0.4rem', background: '#f1f5f9', padding: '0.25rem', borderRadius: '0.5rem' }}>
+                    <button
+                      type="button"
+                      onClick={() => setConductedStatusFilter('all')}
+                      style={{
+                        border: 'none',
+                        padding: '0.35rem 0.75rem',
+                        borderRadius: '0.375rem',
+                        fontSize: '0.75rem',
+                        fontWeight: '700',
+                        cursor: 'pointer',
+                        background: conductedStatusFilter === 'all' ? '#0f172a' : 'transparent',
+                        color: conductedStatusFilter === 'all' ? '#ffffff' : '#475569'
+                      }}
+                    >
+                      All ({dateDemos.length + cancelledDemos.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConductedStatusFilter('conducted')}
+                      style={{
+                        border: 'none',
+                        padding: '0.35rem 0.75rem',
+                        borderRadius: '0.375rem',
+                        fontSize: '0.75rem',
+                        fontWeight: '700',
+                        cursor: 'pointer',
+                        background: conductedStatusFilter === 'conducted' ? '#15803d' : 'transparent',
+                        color: conductedStatusFilter === 'conducted' ? '#ffffff' : '#475569'
+                      }}
+                    >
+                      Conducted ({dateDemos.length}) ✅
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConductedStatusFilter('cancelled')}
+                      style={{
+                        border: 'none',
+                        padding: '0.35rem 0.75rem',
+                        borderRadius: '0.375rem',
+                        fontSize: '0.75rem',
+                        fontWeight: '700',
+                        cursor: 'pointer',
+                        background: conductedStatusFilter === 'cancelled' ? '#dc2626' : 'transparent',
+                        color: conductedStatusFilter === 'cancelled' ? '#ffffff' : '#475569'
+                      }}
+                    >
+                      Cancelled ({cancelledDemos.length}) ❌
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ overflowX: 'auto' }}>
+                <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '700', color: '#475569' }}>#</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '700', color: '#475569' }}>Candidate</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '700', color: '#475569' }}>Course</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '700', color: '#475569' }}>Advisor / Telecaller</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '700', color: '#475569' }}>Calling Date</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '700', color: '#475569' }}>Demo Scheduled For</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '700', color: '#475569' }}>Status</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '700', color: '#475569' }}>Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displayTableDemos.length > 0 ? (
+                      displayTableDemos.map((demo, idx) => {
+                        const cInfo = DEMO_COURSES[demo.courseKey] || DEMO_COURSES.MECH;
+                        const isSameDate = demo.date === (demo.bookedDate || selectedDate);
+                        const isConducted = demo.status === 'Conducted';
+                        const isCancelled = demo.status === 'Cancelled';
+
+                        return (
+                          <tr key={demo.id || idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <td style={{ padding: '0.75rem 1rem', fontSize: '0.8rem', color: '#94a3b8', fontWeight: '600' }}>{idx + 1}</td>
+                            <td style={{ padding: '0.75rem 1rem' }}>
+                              <div style={{ fontWeight: '700', color: '#0f172a', fontSize: '0.875rem' }}>{demo.prospectName}</div>
+                              <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{demo.prospectPhone}</div>
+                            </td>
+                            <td style={{ padding: '0.75rem 1rem' }}>
+                              <span style={{
+                                backgroundColor: cInfo.bgColor,
+                                color: cInfo.darkColor,
+                                border: `1px solid ${cInfo.borderColor}`,
+                                borderRadius: '0.375rem',
+                                padding: '0.2rem 0.5rem',
+                                fontSize: '0.75rem',
+                                fontWeight: '700'
+                              }}>
+                                {cInfo.name}
                               </span>
-                            )}
-                          </div>
-                          <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{demo.timeSlot}</div>
-                        </td>
-                        <td style={{ padding: '0.75rem 1rem' }}>
-                          <span className={`status-chip ${demo.status === 'Conducted' ? 'medium' : 'high'}`}>
-                            {demo.status}
-                          </span>
-                        </td>
-                        <td style={{ padding: '0.75rem 1rem', fontSize: '0.775rem', color: '#64748b', maxWidth: '240px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {demo.notes || '—'}
+                            </td>
+                            <td style={{ padding: '0.75rem 1rem', fontSize: '0.85rem', fontWeight: '600', color: '#334155' }}>
+                              {demo.employeeName}
+                            </td>
+                            <td style={{ padding: '0.75rem 1rem', fontSize: '0.8rem', color: '#64748b' }}>
+                              {demo.bookedDate || demo.date}
+                            </td>
+                            <td style={{ padding: '0.75rem 1rem' }}>
+                              <div style={{ fontWeight: '700', color: '#0f172a', fontSize: '0.85rem' }}>
+                                {demo.date}
+                                {!isSameDate && (
+                                  <span style={{ marginLeft: '0.4rem', fontSize: '0.7rem', padding: '0.1rem 0.35rem', background: '#e0f2fe', color: '#0369a1', borderRadius: '0.25rem', fontWeight: '700' }}>
+                                    Future Slot
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{demo.timeSlot}</div>
+                            </td>
+                            <td style={{ padding: '0.75rem 1rem' }}>
+                              <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.3rem',
+                                padding: '0.25rem 0.6rem',
+                                borderRadius: '0.375rem',
+                                fontSize: '0.75rem',
+                                fontWeight: '700',
+                                background: isConducted ? '#dcfce7' : (isCancelled ? '#fee2e2' : '#e0f2fe'),
+                                color: isConducted ? '#15803d' : (isCancelled ? '#dc2626' : '#0369a1'),
+                                border: `1px solid ${isConducted ? '#86efac' : (isCancelled ? '#fca5a5' : '#7dd3fc')}`
+                              }}>
+                                {isConducted ? '✅ Conducted' : (isCancelled ? '❌ Cancelled' : '📅 Fixed')}
+                              </span>
+                            </td>
+                            <td style={{ padding: '0.75rem 1rem', fontSize: '0.775rem', color: '#64748b', maxWidth: '240px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {demo.notes || '—'}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan="8" style={{ textAlign: 'center', padding: '3rem 1rem', color: '#64748b' }}>
+                          No demos match the selected filter.
                         </td>
                       </tr>
-                    );
-                  })
-                ) : (
-                  <tr>
-                    <td colSpan="8" style={{ textAlign: 'center', padding: '3rem 1rem', color: '#64748b' }}>
-                      No demos fixed on this date.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Modal for Course Breakdown */}
         {selectedCourseGauges && (
