@@ -943,10 +943,29 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
 
   React.useEffect(() => {
     doAutoFetch();
-    // Refresh every 5 minutes to keep funnel up to date with live sheet entries
-    const interval = setInterval(doAutoFetch, 5 * 60 * 1000);
+    // Refresh every 2 minutes to keep funnel up to date with live sheet entries
+    const interval = setInterval(doAutoFetch, 2 * 60 * 1000);
     return () => clearInterval(interval);
   }, [adminSheetUrl]);
+
+  // Day-change detector: auto-reset selectedDate to today when midnight rolls over
+  // This ensures each new day automatically shows that day's department-wise demo counts
+  React.useEffect(() => {
+    let lastKnownDate = getTodayDateStr();
+    const dayChangeCheck = setInterval(() => {
+      const currentDate = getTodayDateStr();
+      if (currentDate !== lastKnownDate) {
+        lastKnownDate = currentDate;
+        // Auto-switch to new day's date for daily funnels (demoDate mode)
+        if (filterMode === 'demoDate' && selectedDate !== 'ALL') {
+          setSelectedDate(currentDate);
+        }
+        // Also re-fetch fresh data from Google Sheet for the new day
+        doAutoFetch();
+      }
+    }, 60 * 1000); // Check every 60 seconds
+    return () => clearInterval(dayChangeCheck);
+  }, [filterMode, selectedDate]);
 
   // Export Demos to CSV
   const handleExportCSV = () => {
