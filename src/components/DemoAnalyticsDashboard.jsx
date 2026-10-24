@@ -1056,9 +1056,14 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
     const isBookingMode = filterMode === 'bookedDate';
     const isConductedMode = filterMode === 'conducted';
 
-    // Simple title: show the selected date's demo count
-    let titleText = `Demo Schedule — ${getFormattedDateLabel(selectedDate)}`;
-    let subtitleText = `${getFormattedDateLabel(selectedDate)} அன்று conduct ஆக உள்ள demos — Google Sheet data live update`;
+    // Title & subtitle
+    const isToday = selectedDate === getTodayDateStr();
+    let titleText = isToday
+      ? `Demo Today Schedule Funnel (${getFormattedDateLabel(selectedDate)})`
+      : `Demo Schedule Funnel (${getFormattedDateLabel(selectedDate)})`;
+    let subtitleText = isToday
+      ? `Demos scheduled to be conducted today (${getFormattedDateLabel(selectedDate)}) across all 4 courses — Google Sheet live sync`
+      : `Demos scheduled to be conducted on ${getFormattedDateLabel(selectedDate)} across all 4 courses — Google Sheet live sync`;
     const modeLabel = 'Demos';
 
     if (isBookingMode) {
