@@ -132,10 +132,11 @@ export const normalizeExcelDemoRow = (row, index) => {
 
   const statusRaw = findVal('status', 'demostatus', 'conductionstatus') || 'Fixed';
   let status = 'Fixed';
-  if (statusRaw.toLowerCase().includes('conducted') || statusRaw.toLowerCase().includes('done') || statusRaw.toLowerCase().includes('completed') || statusRaw.toLowerCase().includes('attended')) {
-    status = 'Conducted';
-  } else if (statusRaw.toLowerCase().includes('cancel') || statusRaw.toLowerCase().includes('absent')) {
+  const sLow = statusRaw.toLowerCase();
+  if (sLow.includes('not conducted') || sLow.includes('cancel') || sLow.includes('absent') || sLow.includes('not done') || sLow.includes('did not attend')) {
     status = 'Cancelled';
+  } else if (sLow.includes('conducted') || sLow.includes('done') || sLow.includes('completed') || sLow.includes('attended')) {
+    status = 'Conducted';
   }
 
   return {
