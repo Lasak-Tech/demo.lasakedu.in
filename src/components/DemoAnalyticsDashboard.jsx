@@ -510,7 +510,7 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
 
   // Employee Daily Stats for Selected Date (Filtered by Access Level)
   const employeeDailyStats = useMemo(() => {
-    return displayEmployees.map((emp) => {
+    const list = displayEmployees.map((emp) => {
       const empDemos = scheduledDemos.filter((d) => {
         let matchesDate = false;
         if (filterMode === 'bookedDate') {
@@ -519,15 +519,19 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
         } else {
           matchesDate = (selectedDate === 'ALL' || normalizeDateStr(d.date) === selectedDate);
         }
-        const matchesEmp = d.employeeId === emp.id || d.employeeName?.toLowerCase() === emp.name.toLowerCase();
+        const matchesEmp = d.employeeId === emp.id ||
+          (d.employeeName && emp.name && d.employeeName.toLowerCase() === emp.name.toLowerCase()) ||
+          (d.employeeEmail && emp.email && d.employeeEmail.toLowerCase() === emp.email.toLowerCase());
         return matchesDate && matchesEmp;
       });
-      const fixedForDay = empDemos.filter((d) => d.status !== 'Cancelled').length;
+      const fixedForDay = empDemos.length;
       const conducted = empDemos.filter((d) => d.status === 'Conducted').length;
       const cancelled = empDemos.filter((d) => d.status === 'Cancelled').length;
 
       const totalAssigned = scheduledDemos.filter(
-        (d) => d.employeeId === emp.id || d.employeeName?.toLowerCase() === emp.name.toLowerCase()
+        (d) => d.employeeId === emp.id ||
+          (d.employeeName && emp.name && d.employeeName.toLowerCase() === emp.name.toLowerCase()) ||
+          (d.employeeEmail && emp.email && d.employeeEmail.toLowerCase() === emp.email.toLowerCase())
       ).length;
 
       return {
@@ -538,6 +542,9 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
         totalAssigned
       };
     });
+
+    // Sort: advisors who fixed demos today come first, then by total assigned
+    return list.sort((a, b) => (b.fixedForDay - a.fixedForDay) || (b.totalAssigned - a.totalAssigned));
   }, [displayEmployees, scheduledDemos, selectedDate, filterMode]);
   const totalEmpStats = useMemo(() => {
     return employeeDailyStats.reduce(
