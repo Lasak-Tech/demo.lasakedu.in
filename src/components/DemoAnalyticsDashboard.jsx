@@ -96,13 +96,14 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
 
   // One-time migration: clear old mock-polluted localStorage cache so fresh sheet data takes over
   React.useEffect(() => {
-    const migrationKey = 'lasak_demo_cache_v8_status_fix'; // v8: correctly separate Conducted vs Demo Not Conducted (Cancelled)
+    const migrationKey = 'lasak_demo_cache_v9_ist_and_booking_fix'; // v9: IST timezone fix + all fixed bookings in funnel
     if (!localStorage.getItem(migrationKey)) {
       // Purge old mixed/wrong-course-resolved data cache completely
       localStorage.removeItem('lasak_scheduled_demos');
       localStorage.removeItem('lasak_live_sheet_loaded');
       localStorage.removeItem('lasak_sheet_last_fetched');
       // Clear all previous migration flags too
+      localStorage.removeItem('lasak_demo_cache_v8_status_fix');
       localStorage.removeItem('lasak_demo_cache_v7_migrated');
       localStorage.removeItem('lasak_demo_cache_v6_migrated');
       localStorage.removeItem('lasak_demo_cache_v5_migrated');
@@ -288,28 +289,23 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
         return true;
       });
     } else if (filterMode === 'demoDate') {
+      // Demo Schedule Funnel: show all demos fixed/scheduled for this date
       filtered = rawDateDemos.filter(d => {
-        if (d.status === 'Cancelled') return false;
         if (d.sourceTab) return d.sourceTab === 'Demo Booking Responses';
         if (d.id && d.id.startsWith('sch-gsheet-')) return d.id.startsWith('sch-gsheet-DemoBookingResponses');
         if (d.id && (d.id.startsWith('sch-custom-') || d.id.startsWith('sch-excel-'))) return true;
         return false;
       });
     } else if (filterMode === 'bookedDate') {
-      // ONLY show records from 'Demo Booking Responses' tab (strictly 331 live demos)
+      // Demo Booking Funnel: show ALL demos fixed/booked via calling from 'Demo Booking Responses' (all 341 live demos)
       filtered = rawDateDemos.filter(d => {
-        if (d.status === 'Cancelled') return false;
-        // Primary check: record explicitly tagged with Demo Booking Responses tab
         if (d.sourceTab) return d.sourceTab === 'Demo Booking Responses';
-        // Fallback for cached entries: check id prefix
         if (d.id && d.id.startsWith('sch-gsheet-')) {
           return d.id.startsWith('sch-gsheet-DemoBookingResponses');
         }
-        // Manual entries created through UI
         if (d.id && (d.id.startsWith('sch-custom-') || d.id.startsWith('sch-excel-'))) {
           return true;
         }
-        // Explicitly reject all other tabs (Conduction, Revenue, Student) and mock demos (sch-001...)
         return false;
       });
     }
@@ -743,27 +739,44 @@ export default function DemoAnalyticsDashboard({ currentUser, filterMode = 'demo
     const normalizeDate = (rawDate) => {
       if (!rawDate) return getTodayDateStr();
       const str = String(rawDate).trim();
+      if (!str) return getTodayDateStr();
+
+      // If it contains ISO timestamp with T (e.g. 2026-10-23T18:30:00.000Z), convert via local Date object to respect local IST timezone (+5:30)
+      if (str.includes('T')) {
+        const dt = new Date(str);
+        if (!isNaN(dt.getTime())) {
+          const yr = dt.getFullYear();
+          const mo = String(dt.getMonth() + 1).padStart(2, '0');
+          const da = String(dt.getDate()).padStart(2, '0');
+          return `${yr}-${mo}-${da}`;
+        }
+      }
 
       const datePart = str.split('T')[0].split(' ')[0];
+      if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(datePart)) {
+        const [y, m, d] = datePart.split('-');
+        return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+      }
       if (datePart.includes('/')) {
         const p = datePart.split('/');
         if (p.length === 3) {
           if (p[0].length === 4) return `${p[0]}-${p[1].padStart(2, '0')}-${p[2].padStart(2, '0')}`;
-          const yr = p[2];
-          let p0 = parseInt(p[0], 10);
-          let p1 = parseInt(p[1], 10);
-          let month = (p0 > 12 ? p1 : p0).toString().padStart(2, '0');
-          let day = (p0 > 12 ? p0 : p1).toString().padStart(2, '0');
-          return `${yr}-${month}-${day}`;
+          const yr = p[2].length === 2 ? `20${p[2]}` : p[2];
+          const p0 = parseInt(p[0], 10);
+          const p1 = parseInt(p[1], 10);
+          if (p1 > 12) return `${yr}-${String(p0).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+          return `${yr}-${String(p1).padStart(2, '0')}-${String(p0).padStart(2, '0')}`;
         }
-      } else if (datePart.includes('-')) {
+      }
+      if (datePart.includes('-')) {
         const p = datePart.split('-');
         if (p.length === 3) {
           if (p[0].length === 4) return datePart;
-          const yr = p[2];
-          let month = p[1].padStart(2, '0');
-          let day = p[0].padStart(2, '0');
-          return `${yr}-${month}-${day}`;
+          const yr = p[2].length === 2 ? `20${p[2]}` : p[2];
+          const p0 = parseInt(p[0], 10);
+          const p1 = parseInt(p[1], 10);
+          if (p1 > 12) return `${yr}-${String(p0).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+          return `${yr}-${String(p1).padStart(2, '0')}-${String(p0).padStart(2, '0')}`;
         }
       }
       return datePart;
